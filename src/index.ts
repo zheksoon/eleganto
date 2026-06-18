@@ -1,0 +1,24 @@
+export type {
+  IGettable,
+  IObservable,
+  IComputed,
+  IReaction,
+  IRevision,
+  Equals as CheckFn,
+  UpdaterFn,
+  IGetter,
+  IOptions,
+  ReactionFn,
+} from "./core/types";
+export {
+  Observable,
+  Computed,
+  Reaction,
+  newRevision as getRevision,
+  tx,
+  utx,
+  untracked,
+  withUntracked,
+  action,
+  configure,
+} from "./core";

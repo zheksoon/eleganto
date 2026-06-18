@@ -1,0 +1,29 @@
+{
+  "name": "eleganto",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/index.d.mts",
+        "require": "./dist/index.d.cts"
+      },
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "tsdown": "^0.22.3",
+    "typescript": "^6.0.3"
+  },
+  "scripts": {
+    "build": "tsdown"
+  }
+}
