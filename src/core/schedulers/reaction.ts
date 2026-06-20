@@ -1,5 +1,6 @@
 import type { Reaction } from "../classes";
-import { MAX_REACTION_ITERATIONS } from "../constants";
+
+const MAX_REACTION_ITERATIONS = 1000;
 
 let reactionQueue = new Set<Reaction>();
 let swapQueue = new Set<Reaction>();
@@ -30,17 +31,13 @@ function runReactions(): void {
   try {
     let i = MAX_REACTION_ITERATIONS;
 
-    while ((reactionQueue.size || swapQueue.size) && --i) {
+    while (reactionQueue.size > 0 && --i) {
       const reactions = reactionQueue;
       reactionQueue = swapQueue;
 
       for (const reaction of reactions) {
         try {
-          if (reaction._shouldRun()) {
-            reaction._runManager();
-          } else {
-            reaction._clean();
-          }
+          reaction._maybeRun();
         } catch (exception: any) {
           reactionExceptionHandler(exception);
         }

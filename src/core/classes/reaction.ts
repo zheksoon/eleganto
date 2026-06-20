@@ -3,35 +3,26 @@ import { scheduleReaction } from "../schedulers";
 import { utx } from "../transaction";
 import type {
   Destructor,
-  IReactionImpl,
+  IReaction,
   IRevision,
+  ISubscriber,
   ISubscription,
   ReactionFn,
 } from "../types";
 import { revisionsChanged, unsubscribeAndCleanup } from "./common";
-import { registerSubscriber } from "./registry";
+import { registerSubscriber } from "../finalizationRegistry";
 
 type ReactionState = State.CLEAN | State.DIRTY | State.DESTROYED;
 
-export class Reaction implements IReactionImpl {
+export class Reaction implements IReaction, ISubscriber {
   readonly _weakRef = new WeakRef(this);
   readonly _subscriptions: Map<ISubscription, IRevision> = new Map();
 
   private _destructor: Destructor = null;
   private _state: ReactionState = State.CLEAN;
 
-  constructor(
-    private _fn: ReactionFn,
-    private _manager?: () => void,
-  ) {
+  constructor(private _fn: ReactionFn) {
     registerSubscriber(this);
-  }
-
-  _subscribeTo(subscription: ISubscription) {
-    this._subscriptions.set(
-      subscription,
-      subscription._recomputeAndGetRevision(),
-    );
   }
 
   _notify(): void {
@@ -41,15 +32,15 @@ export class Reaction implements IReactionImpl {
     }
   }
 
-  _shouldRun(): boolean {
-    return this._state === State.DIRTY && revisionsChanged(this._subscriptions);
-  }
+  _maybeRun() {
+    if (this._state === State.DESTROYED) {
+      return;
+    }
 
-  _runManager(): void {
-    if (this._manager) {
-      this._manager();
-    } else {
+    if (this._state === State.DIRTY && revisionsChanged(this._subscriptions)) {
       this.run();
+    } else {
+      this._state = State.CLEAN;
     }
   }
 
@@ -60,17 +51,13 @@ export class Reaction implements IReactionImpl {
     this._state = State.CLEAN;
   }
 
-  _clean(): void {
-    this._state = State.CLEAN;
-  }
-
   destroy(): void {
     this._unsubscribeAndCleanup();
     this._state = State.DESTROYED;
   }
 
-  run(fn: ReactionFn = this._fn): void {
+  run(): void {
     this._unsubscribeAndCleanup();
-    this._destructor = utx(fn, this);
+    this._destructor = utx(this._fn, this);
   }
 }

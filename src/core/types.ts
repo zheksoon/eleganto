@@ -11,30 +11,23 @@ export interface ISubscriber {
 
 export interface ISubscription {
   readonly _subscribers: Set<WeakRef<ISubscriber>>;
-  _recomputeAndGetRevision(): IRevision;
+  _recomputeAndGetLatestRevision(): IRevision;
 }
 
 export type IRevision = number;
 
 export type MaybeSubscriber = ISubscriber | null;
 
-export interface IGettable<T> {
+export interface IObservable<T> {
   get(): T;
-}
-
-export interface IObservable<T> extends IGettable<T> {
-  set(newValue?: T | UpdaterFn<T>, asIs?: boolean): void;
+  set(newValue: T): void;
   notify(): void;
 }
 
-export interface IObservableImpl<T> extends IObservable<T>, ISubscription {}
-
-export interface IComputed<T> extends IGettable<T> {
+export interface IComputed<T> {
+  get(): T;
   destroy(): void;
 }
-
-export interface IComputedImpl<T>
-  extends IComputed<T>, ISubscriber, ISubscription {}
 
 export type Destructor = (() => void) | null | undefined | void;
 export type ReactionFn = () => Destructor;
@@ -42,19 +35,9 @@ export type ReactionFn = () => Destructor;
 export interface IReaction {
   destroy(): void;
   run(): void;
-  _runManager(): void;
 }
-
-export interface IReactionImpl extends IReaction, ISubscriber {}
 
 export type Equals<T> = (prev: T, next: T) => boolean;
-export type UpdaterFn<T> = (prevValue: T) => T;
-
-export interface IGetter<T> {
-  (subscriber?: ISubscriber): T;
-
-  revision(): IRevision;
-}
 
 export type IOptions = {
   reactionScheduler?: (runner: () => void) => void;

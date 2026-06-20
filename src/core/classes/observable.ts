@@ -1,11 +1,11 @@
-import { subscriber } from "../subscriber";
+import { subscriberContext } from "../subscriberContext";
 import { endTx, withUntracked } from "../transaction";
-import type { Equals, IObservableImpl, IRevision, ISubscriber } from "../types";
+import type { Equals, IObservable, IRevision, ISubscriber, ISubscription } from "../types";
 import { notify } from "./common";
 import { Computed } from "./computed";
 import { newRevision } from "./revision";
 
-export class Observable<T = any> implements IObservableImpl<T> {
+export class Observable<T = any> implements IObservable<T>, ISubscription {
   readonly _subscribers: Set<WeakRef<ISubscriber>> = new Set();
 
   private _revision: IRevision = newRevision();
@@ -17,21 +17,21 @@ export class Observable<T = any> implements IObservableImpl<T> {
     this._equals = withUntracked(equals);
   }
 
-  _recomputeAndGetRevision(): IRevision {
+  _recomputeAndGetLatestRevision(): IRevision {
     return this._revision;
   }
 
   get(): T {
-    if (subscriber) {
-      subscriber._subscriptions.set(this, this._revision);
-      this._subscribers.add(subscriber._weakRef);
+    if (subscriberContext) {
+      subscriberContext._subscriptions.set(this, this._revision);
+      this._subscribers.add(subscriberContext._weakRef);
     }
 
     return this._value;
   }
 
   set(newValue: T): void {
-    if (subscriber instanceof Computed) {
+    if (subscriberContext instanceof Computed) {
       throw new Error("Changing observable inside of computed");
     }
 
@@ -40,7 +40,6 @@ export class Observable<T = any> implements IObservableImpl<T> {
     }
 
     this._value = newValue as T;
-
     this.notify();
   }
 

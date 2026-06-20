@@ -1,4 +1,4 @@
-import { IRevision, ISubscriber, ISubscription } from "../types";
+import { IRevision, ISubscriber, ISubscription } from "./types";
 
 type HeldValue = Readonly<{
   ref: WeakRef<ISubscriber>;

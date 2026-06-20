@@ -2,7 +2,7 @@ import { IRevision, ISubscriber, ISubscription } from "../types";
 
 export function revisionsChanged(subscriptions: Map<ISubscription, IRevision>) {
   for (const [subscription, revision] of subscriptions) {
-    if (subscription._recomputeAndGetRevision() !== revision) {
+    if (subscription._recomputeAndGetLatestRevision() !== revision) {
       return true;
     }
   }
