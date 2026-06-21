@@ -1,6 +1,6 @@
-import { IdentityFn, MaybeSubscriber } from "./types";
-import { setSubscriberContext } from "./subscriberContext";
-import { scheduleReactionRunner } from "./schedulers";
+import { IdentityFn, MaybeSubscriber } from './types';
+import { setSubscriberContext } from './subscriberContext';
+import { scheduleReactionRunner } from './schedulers';
 
 let txDepth = 0;
 
@@ -23,18 +23,6 @@ export function utx<T>(fn: () => T, subscriber: MaybeSubscriber = null): T {
     txDepth -= 1;
     setSubscriberContext(oldSubscriber);
     endTx();
-  }
-}
-
-export function runInContext<T>(
-  fn: () => T,
-  subscriberContext: MaybeSubscriber = null,
-): T {
-  const oldSubscriber = setSubscriberContext(subscriberContext);
-  try {
-    return fn();
-  } finally {
-    setSubscriberContext(oldSubscriber);
   }
 }
 

@@ -1,4 +1,4 @@
-import type { IRevision } from "../types";
+import type { IRevision } from '../types';
 
 let revisionId: IRevision = 0;
 

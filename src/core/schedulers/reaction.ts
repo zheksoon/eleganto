@@ -1,4 +1,4 @@
-import type { Reaction } from "../classes";
+import type { Reaction } from '../classes';
 
 const MAX_REACTION_ITERATIONS = 1000;
 
@@ -10,16 +10,14 @@ let reactionScheduler = (runner: () => void) => {
   Promise.resolve().then(runner).catch(reactionExceptionHandler);
 };
 let reactionExceptionHandler = (exception: any) => {
-  console.error("Reaction exception:", exception);
+  console.error('Reaction exception:', exception);
 };
 
 export function setReactionScheduler(scheduler: typeof reactionScheduler) {
   reactionScheduler = scheduler;
 }
 
-export function setReactionExceptionHandler(
-  handler: typeof reactionExceptionHandler,
-) {
+export function setReactionExceptionHandler(handler: typeof reactionExceptionHandler) {
   reactionExceptionHandler = handler;
 }
 
@@ -49,7 +47,7 @@ function runReactions(): void {
     }
 
     if (!i) {
-      throw new Error("Infinite reactions loop");
+      throw new Error('Infinite reactions loop');
     }
   } finally {
     isReactionRunScheduled = false;

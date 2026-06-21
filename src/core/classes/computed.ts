@@ -1,22 +1,12 @@
-import { State } from "../constants";
-import { subscriberContext } from "../subscriberContext";
-import { runInContext, withUntracked } from "../transaction";
-import type {
-  Equals,
-  IComputed,
-  IRevision,
-  ISubscriber,
-  ISubscription,
-} from "../types";
-import { notify, revisionsChanged, unsubscribeAndCleanup } from "./common";
-import { registerSubscriber } from "../finalizationRegistry";
-import { newRevision } from "./revision";
+import { State } from '../constants';
+import { runInContext, trackSubscriber } from '../subscriberContext';
+import { withUntracked } from '../transaction';
+import type { Equals, IComputed, IRevision, ISubscriber, ISubscription } from '../types';
+import { notify, revisionsChanged, unsubscribeAndCleanup } from './common';
+import { registerSubscriber } from '../finalizationRegistry';
+import { newRevision } from './revision';
 
-type ComputedState =
-  | State.CLEAN
-  | State.NOT_INITIALIZED
-  | State.COMPUTING
-  | State.DIRTY;
+type ComputedState = State.CLEAN | State.NOT_INITIALIZED | State.COMPUTING | State.DIRTY;
 
 export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscription {
   readonly _weakRef = new WeakRef(this);
@@ -87,15 +77,12 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
 
   get(): T {
     if (this._state === State.COMPUTING) {
-      throw new Error("Recursive computed call");
+      throw new Error('Recursive computed call');
     }
 
     const revision = this._recomputeAndGetLatestRevision();
 
-    if (subscriberContext) {
-      subscriberContext._subscriptions.set(this, revision);
-      this._subscribers.add(subscriberContext._weakRef);
-    }
+    trackSubscriber(this, revision);
 
     return this._value!;
   }

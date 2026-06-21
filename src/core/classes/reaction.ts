@@ -1,6 +1,6 @@
-import { State } from "../constants";
-import { scheduleReaction } from "../schedulers";
-import { utx } from "../transaction";
+import { State } from '../constants';
+import { scheduleReaction } from '../schedulers';
+import { utx } from '../transaction';
 import type {
   Destructor,
   IReaction,
@@ -8,9 +8,10 @@ import type {
   ISubscriber,
   ISubscription,
   ReactionFn,
-} from "../types";
-import { revisionsChanged, unsubscribeAndCleanup } from "./common";
-import { registerSubscriber } from "../finalizationRegistry";
+} from '../types';
+import { revisionsChanged, unsubscribeAndCleanup } from './common';
+import { registerSubscriber } from '../finalizationRegistry';
+import { runInContext } from '../subscriberContext';
 
 type ReactionState = State.CLEAN | State.DIRTY | State.DESTROYED;
 
@@ -46,7 +47,7 @@ export class Reaction implements IReaction, ISubscriber {
 
   _unsubscribeAndCleanup(): void {
     unsubscribeAndCleanup(this);
-    this._destructor && utx(this._destructor);
+    this._destructor && runInContext(this._destructor);
     this._destructor = null;
     this._state = State.CLEAN;
   }

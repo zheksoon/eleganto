@@ -1,4 +1,4 @@
-import { IRevision, ISubscriber, ISubscription } from "../types";
+import { IRevision, ISubscriber, ISubscription } from '../types';
 
 export function revisionsChanged(subscriptions: Map<ISubscription, IRevision>) {
   for (const [subscription, revision] of subscriptions) {

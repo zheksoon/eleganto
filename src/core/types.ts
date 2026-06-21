@@ -21,7 +21,6 @@ export type MaybeSubscriber = ISubscriber | null;
 export interface IObservable<T> {
   get(): T;
   set(newValue: T): void;
-  notify(): void;
 }
 
 export interface IComputed<T> {
