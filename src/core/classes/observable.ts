@@ -12,12 +12,21 @@ export class Observable<T = any> implements IObservable<T>, ISubscription {
   private _value: T;
   private readonly _equals: Equals<T>;
 
+  private _txInitialValue: T | null = null;
+  private _txInitialRevision: IRevision | null = null;
+
   constructor(value: T, equals: Equals<T> = Object.is) {
     this._value = value;
     this._equals = withUntracked(equals);
   }
 
   _recomputeAndGetLatestRevision(): IRevision {
+    if (this._txInitialRevision && this._equals(this._txInitialValue!, this._value)) {
+      this._revision = this._txInitialRevision;
+      this._txInitialRevision = null;
+      this._txInitialValue = null;
+    }
+
     return this._revision;
   }
 
@@ -33,6 +42,11 @@ export class Observable<T = any> implements IObservable<T>, ISubscription {
 
     if (this._equals(this._value, newValue)) {
       return;
+    }
+
+    if (this._txInitialRevision === null) {
+      this._txInitialValue = this._value;
+      this._txInitialRevision = this._revision;
     }
 
     this._value = newValue as T;
