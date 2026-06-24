@@ -1,19 +1,13 @@
-import { IRevision, ISubscriber, ISubscription } from './types';
+import { IRevision, ISubscriber, ISubscription } from "./types";
 
-type HeldValue = Readonly<{
-  ref: WeakRef<ISubscriber>;
-  subscriptions: Map<ISubscription, IRevision>;
-}>;
+type HeldValue = [WeakRef<ISubscriber>, Map<ISubscription, IRevision>];
 
-const registry = new FinalizationRegistry<HeldValue>((heldValue) => {
-  for (const [subscription] of heldValue.subscriptions) {
-    subscription._subscribers.delete(heldValue.ref);
+const registry = new FinalizationRegistry<HeldValue>(([ref, subscriptions]) => {
+  for (const [subscription] of subscriptions) {
+    subscription._subscribers.delete(ref);
   }
 });
 
-export function registerSubscriber(subscriber: ISubscriber) {
-  registry.register(subscriber, {
-    ref: subscriber._weakRef,
-    subscriptions: subscriber._subscriptions,
-  });
-}
+export const registerSubscriber = (subscriber: ISubscriber): void => {
+  registry.register(subscriber, [subscriber._weakRef, subscriber._subscriptions]);
+};

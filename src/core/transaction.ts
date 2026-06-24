@@ -1,20 +1,20 @@
-import { IdentityFn, MaybeSubscriber } from './types';
-import { setSubscriberContext } from './subscriberContext';
-import { scheduleReactionRunner } from './schedulers';
+import { IdentityFn, MaybeSubscriber } from "./types";
+import { setSubscriberContext } from "./subscriberContext";
+import { scheduleReactionRunner } from "./schedulers";
 
 let txDepth = 0;
 
-export function tx(fn: () => void): void {
+export const tx = (fn: () => void): void => {
   txDepth += 1;
   try {
-    fn();
+    return fn();
   } finally {
     txDepth -= 1;
     endTx();
   }
-}
+};
 
-export function utx<T>(fn: () => T, subscriber: MaybeSubscriber = null): T {
+export const txInContext = <T>(fn: () => T, subscriber: MaybeSubscriber = null): T => {
   const oldSubscriber = setSubscriberContext(subscriber);
   txDepth += 1;
   try {
@@ -24,9 +24,9 @@ export function utx<T>(fn: () => T, subscriber: MaybeSubscriber = null): T {
     setSubscriberContext(oldSubscriber);
     endTx();
   }
-}
+};
 
-export function withUntracked<T extends Function>(fn: T): IdentityFn<T> {
+export const withUntracked = <T extends Function>(fn: T): IdentityFn<T> => {
   return function (this: any) {
     const oldSubscriber = setSubscriberContext(null);
     try {
@@ -35,9 +35,9 @@ export function withUntracked<T extends Function>(fn: T): IdentityFn<T> {
       setSubscriberContext(oldSubscriber);
     }
   } as IdentityFn<T>;
-}
+};
 
-export function action<T extends Function>(fn: T): IdentityFn<T> {
+export const action = <T extends Function>(fn: T): IdentityFn<T> => {
   return function (this: any) {
     const oldSubscriber = setSubscriberContext(null);
     txDepth += 1;
@@ -49,10 +49,10 @@ export function action<T extends Function>(fn: T): IdentityFn<T> {
       endTx();
     }
   } as IdentityFn<T>;
-}
+};
 
-export function endTx() {
+export const endTx = (): void => {
   if (!txDepth) {
     scheduleReactionRunner();
   }
-}
+};

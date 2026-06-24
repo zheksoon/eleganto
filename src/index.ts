@@ -6,15 +6,15 @@ export type {
   Equals,
   IOptions,
   ReactionFn,
-} from "./core/types";
+} from './core/types';
 export {
   Observable,
   Computed,
   Reaction,
   tx,
-  utx,
+  txInContext,
   runInContext,
   withUntracked,
   action,
   configure,
-} from "./core";
+} from './core';

@@ -1,9 +1,9 @@
-import type { IRevision } from '../types';
+import type { IRevision } from "../types";
 
 let revisionId: IRevision = 0;
 
-export function newRevision(): IRevision {
+export const newRevision = (): IRevision => {
   revisionId = (revisionId + 1) | 0;
 
   return revisionId;
-}
+};

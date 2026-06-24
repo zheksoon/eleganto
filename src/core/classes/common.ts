@@ -1,6 +1,6 @@
-import { IRevision, ISubscriber, ISubscription } from '../types';
+import { IRevision, ISubscriber, ISubscription } from "../types";
 
-export function revisionsChanged(subscriptions: Map<ISubscription, IRevision>) {
+export const revisionsChanged = (subscriptions: Map<ISubscription, IRevision>): boolean => {
   for (const [subscription, revision] of subscriptions) {
     if (subscription._recomputeAndGetLatestRevision() !== revision) {
       return true;
@@ -8,20 +8,17 @@ export function revisionsChanged(subscriptions: Map<ISubscription, IRevision>) {
   }
 
   return false;
-}
+};
 
-export function unsubscribeAndCleanup(subscriber: ISubscriber): void {
+export const unsubscribeAndCleanup = (subscriber: ISubscriber): void => {
   for (const [subscription] of subscriber._subscriptions) {
     subscription._subscribers.delete(subscriber._weakRef);
   }
   subscriber._subscriptions.clear();
-}
+};
 
-export function notify(subscribers: Set<WeakRef<ISubscriber>>): void {
+export const notify = (subscribers: Set<WeakRef<ISubscriber>>): void => {
   for (const ref of subscribers) {
-    const subscriber = ref.deref();
-    if (subscriber !== undefined) {
-      subscriber._notify();
-    }
+    ref.deref()?._notify();
   }
-}
+};
