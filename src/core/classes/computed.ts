@@ -1,5 +1,5 @@
 import { State } from "../constants";
-import { setSubscriberContext, trackSubscriber } from "../subscriberContext";
+import { runInContext, trackSubscriber } from "../subscriberContext";
 import type { IComputed, IRevision, ISubscriber, ISubscription } from "../types";
 import { notify, revisionsChanged, unsubscribeAndCleanup } from "./common";
 import { registerSubscriber } from "../finalizationRegistry";
@@ -54,14 +54,11 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
     unsubscribeAndCleanup(this);
     this._state = State.COMPUTING;
 
-    const oldContext = setSubscriberContext(this);
     try {
-      return this._fn();
+      return runInContext(this._fn, this);
     } catch (err) {
       this.destroy();
       throw err;
-    } finally {
-      setSubscriberContext(oldContext);
     }
   }
 
