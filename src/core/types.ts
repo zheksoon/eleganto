@@ -1,7 +1,3 @@
-export type IdentityFn<T> = T extends (...args: infer Args) => infer R
-  ? (...args: Args) => R
-  : never;
-
 export interface ISubscriber {
   readonly _weakRef: WeakRef<ISubscriber>;
   readonly _subscriptions: Map<ISubscription, IRevision>;
@@ -11,7 +7,7 @@ export interface ISubscriber {
 
 export interface ISubscription {
   readonly _subscribers: Set<WeakRef<ISubscriber>>;
-  _recomputeAndGetLatestRevision(): IRevision;
+  _updateRevision(): IRevision;
 }
 
 export type IRevision = number;

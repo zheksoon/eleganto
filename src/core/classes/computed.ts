@@ -1,7 +1,6 @@
 import { State } from "../constants";
-import { runInContext, trackSubscriber } from "../subscriberContext";
-import { withUntracked } from "../transaction";
-import type { Equals, IComputed, IRevision, ISubscriber, ISubscription } from "../types";
+import { setSubscriberContext, trackSubscriber } from "../subscriberContext";
+import type { IComputed, IRevision, ISubscriber, ISubscription } from "../types";
 import { notify, revisionsChanged, unsubscribeAndCleanup } from "./common";
 import { registerSubscriber } from "../finalizationRegistry";
 import { newRevision } from "./revision";
@@ -17,13 +16,7 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
   private _revision: IRevision = newRevision();
   private _state: ComputedState = State.NOT_INITIALIZED;
 
-  private readonly _fn: () => T;
-  private readonly _equals: Equals<T>;
-
-  constructor(fn: () => T, equals: Equals<T> = Object.is) {
-    this._fn = fn;
-    this._equals = withUntracked(equals);
-
+  constructor(private readonly _fn: () => T) {
     registerSubscriber(this);
   }
 
@@ -34,7 +27,7 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
     }
   }
 
-  _recomputeAndGetLatestRevision(): IRevision {
+  _updateRevision(): IRevision {
     if (this._state === State.CLEAN) {
       return this._revision;
     }
@@ -46,7 +39,7 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
 
     if (this._state === State.DIRTY && revisionsChanged(this._subscriptions)) {
       const result = this._recompute();
-      if (!this._equals(this._value!, result)) {
+      if (this._value !== result) {
         this._value = result;
         this._revision = newRevision();
       }
@@ -61,11 +54,14 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
     unsubscribeAndCleanup(this);
     this._state = State.COMPUTING;
 
+    const oldContext = setSubscriberContext(this);
     try {
-      return runInContext(this._fn, this);
+      return this._fn();
     } catch (err) {
       this.destroy();
       throw err;
+    } finally {
+      setSubscriberContext(oldContext);
     }
   }
 
@@ -80,7 +76,7 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
       throw new Error("Recursive computed call");
     }
 
-    const revision = this._recomputeAndGetLatestRevision();
+    const revision = this._updateRevision();
 
     trackSubscriber(this, revision);
 

@@ -11,10 +11,6 @@ export {
   Observable,
   Computed,
   Reaction,
-  tx,
   txInContext,
   runInContext,
-  withUntracked,
-  action,
-  configure,
 } from './core';
