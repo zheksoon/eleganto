@@ -1,5 +1,5 @@
 import { State } from "../constants";
-import { scheduleReaction } from "../schedulers";
+import { scheduleReaction } from "../reactionScheduler";
 import { txInContext } from "../transaction";
 import type {
   Destructor,
@@ -49,15 +49,16 @@ export class Reaction implements IReaction, ISubscriber {
     unsubscribeAndCleanup(this);
     this._destructor && runInContext(this._destructor, null);
     this._destructor = null;
-    this._state = State.CLEAN;
   }
 
   destroy(): void {
-    this._unsubscribeAndCleanup();
+    if (this._state === State.DESTROYED) return;
     this._state = State.DESTROYED;
+    this._unsubscribeAndCleanup();
   }
 
   run(): void {
+    this._state = State.CLEAN;
     this._unsubscribeAndCleanup();
     this._destructor = txInContext(this._fn, this);
   }

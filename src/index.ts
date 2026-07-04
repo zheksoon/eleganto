@@ -6,11 +6,7 @@ export type {
   Equals,
   IOptions,
   ReactionFn,
-} from './core/types';
-export {
-  Observable,
-  Computed,
-  Reaction,
-  txInContext,
-  runInContext,
-} from './core';
+} from "./types";
+export { Observable, Computed, Reaction } from "./classes";
+export { txInContext } from "./transaction";
+export { runInContext } from "./subscriberContext";

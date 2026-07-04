@@ -5,4 +5,10 @@ export default defineConfig({
     target: ["es2022"],
     format: ["cjs", "esm"],
     dts: true,
+    sourcemap: 'hidden',
+    inputOptions: {
+        experimental: {
+            attachDebugInfo: 'none'
+        }
+    }
 })

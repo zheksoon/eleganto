@@ -9,7 +9,7 @@ export class Observable<T = any> implements IObservable<T>, ISubscription {
   readonly _subscribers: Set<WeakRef<ISubscriber>> = new Set();
 
   private _revision: IRevision = newRevision();
- 
+
   constructor(private _value: T) {}
 
   _updateRevision(): IRevision {

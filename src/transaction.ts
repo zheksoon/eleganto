@@ -1,6 +1,6 @@
 import { setSubscriberContext } from "./subscriberContext";
-import { runReactions } from "./schedulers";
-import { ISubscriber } from "./types";
+import { runReactions } from "./reactionScheduler";
+import type { ISubscriber } from "./types";
 
 let txDepth = 0;
 
