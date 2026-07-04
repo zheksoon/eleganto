@@ -25,3 +25,5 @@ export const runInContext = <T>(fn: () => T, subscriberContext: MaybeSubscriber 
     setSubscriberContext(oldSubscriber);
   }
 };
+
+export const untracked = runInContext;

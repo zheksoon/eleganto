@@ -8,5 +8,5 @@ export type {
   ReactionFn,
 } from "./types";
 export { Observable, Computed, Reaction } from "./classes";
-export { txInContext } from "./transaction";
-export { runInContext } from "./subscriberContext";
+export { tx, action } from "./transaction";
+export { untracked } from "./subscriberContext";
