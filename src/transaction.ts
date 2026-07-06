@@ -1,5 +1,5 @@
 import { setSubscriberContext } from "./subscriberContext";
-import { runReactions } from "./reactionScheduler";
+import { isRunning, runReactions } from "./reactionScheduler";
 import type { ISubscriber } from "./types";
 
 let txDepth = 0;
@@ -43,7 +43,7 @@ export const action = <T, Args extends any[]>(
 };
 
 export const endTx = (): void => {
-  if (!txDepth) {
+  if (!txDepth && !isRunning) {
     runReactions();
   }
 };

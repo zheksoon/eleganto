@@ -3,14 +3,13 @@ import type { Reaction } from "./classes";
 const MAX_REACTION_ITERATIONS = 1000;
 
 let reactionQueue: Reaction[] = [];
-let isRunning = false;
+export let isRunning = false;
 
 export const scheduleReaction = (reaction: Reaction): void => {
   reactionQueue.push(reaction);
 };
 
 export const runReactions = (): void => {
-  if (isRunning) return;
   isRunning = true;
 
   let i = 0;
