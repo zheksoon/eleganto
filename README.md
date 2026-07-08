@@ -1,22 +1,18 @@
-# Eleganto - Reactivity You Can Understand
+# Eleganto - Reactivity You Finally Understand
 
-Software is complex. Today, it often becomes even more complex because a lot of code is generated quickly and then patched many times. The result may work, but it can be hard to read and hard to trust.
+Software is complex. Software in the age of AI is even more complex - the code is created quickly and then modified many times, often making it hard to reason without AI tools.
 
-This is why clarity matters. A clear solution is often more useful than a larger or more clever one.
+Elegant solutions matter. It's often more preferable to have a clean, readable one than one optimized and layered with edge cases and defensive programming.
 
-Some time ago, I tried to understand how reactivity works in MobX. I liked the idea, but the implementation was difficult for me to follow, layered with optimizations and legacy. So I started writing my own small versions to understand the basics.
+Once I tried to understand how MobX works. This is indeed a very cool library for reactive state management, and the concept was quite clear. But the implementation wasn't - with micro-optimizations all around, and legacy compatibility.
 
-After a few years, I found a shape that felt simple enough and still practical. I called it **Eleganto**.
+I started to build my own just to understand the idea - and there were many of them. `dipole`, `eveline`, `onek` - they all had one goal - a nice, small, full-featured implementation. But each time it missed some kind of beauty I was aiming for. And finally, after some years of the idea boiling in my head, I found a shape that felt right. I called it **Eleganto**.
 
-Eleganto is not trying to be the fastest reactive library. Its main goal is to be clear. The core is small enough to keep in your head, but it still covers important parts: lazy computed values, dependency tracking, transactions, cleanup, recursion protection, and reaction scheduling.
+Eleganto isn't yet another library marketed as "the only blazing-fast state management you shold use". Eleganto is made to be **understandable** - the idea shold fit in your head in 15 minutes, while being perfectly functional. I won't put bundlephobia badge on it because it shouldn't be included in your bundle - it shold be included in your head. And only then, if you want, you can build something with it.
 
-The package is also small: about **1.4 KB gzip**, without minification or mangling, so all stack traces and fields are always transparent.
+## The API
 
-Let's look at how it works.
-
-## 1. The Public API
-
-Here is a small example:
+Let's start with a simple, almost ubiquitous example of reactive building blocks:
 
 ```ts
 import { Observable, Computed, Reaction, tx } from "eleganto";
@@ -41,69 +37,28 @@ tx(() => {
   b.set(3);
 });
 // C is 5
+
+printer.destroy(); // printer won't run anymore
 ```
 
-There are three main primitives:
+If you have ever used MobX, preact-signals, SolidJS - this all looks familiar to you, there is absolutely nothing new.
 
-- An `Observable` stores a value.
-- A `Computed` derives a value from observables or other computed values.
-- A `Reaction` runs a side effect when the values it reads change.
+If not, here's a brief explanation of what is happening:
 
-There are also three helpers:
+* `Observable` creates a reactive value. It has `.get()` and `.set()` methods
+* `Computed` creates a reactive value derived from other observable or computed values. It has `.get()` method. Computed values are lazy and don't get evaluated before `.get()`
+* `Reaction` is a side effect that runs when observed values change. It's syncronous and needs to run explicitly for the first time using `.run()` method. It can be destroyed with `.destroy()` method.
+* `tx` is transaction - it batches updates of observable values and runs reactions at the end.
 
-```ts
-tx(() => {
-  // batch updates
-});
+## No Magic
 
-const save = action(() => {
-  // untracked transaction
-});
-
-untracked(() => {
-  // read without subscribing
-});
-```
-
-This is almost the whole API.
-
-Now let's build the mental model.
-
-## 2. The Shape of Reactivity
-
-When you read an observable inside a computed value or a reaction, the observable remembers who is reading it.
-
-When the observable changes, it notifies those readers.
-
-The flow looks like this:
-
-```txt
-Observable.set()
-  -> notify subscribers
-  -> Computed becomes dirty
-  -> Reaction is scheduled
-  -> transaction ends
-  -> Reaction checks revisions
-  -> Computed recomputes only if needed
-```
-
-The important detail is that computed values are lazy.
-
-They do not recompute immediately when something changes. They only become dirty and recompute later, when someone asks for their value or when a reaction needs to check if it should run.
-
-This keeps the system simple.
-
-## 3. No Magic
-
-Computed values and reactions automatically track the observables they use.
-
-The mechanism is small. While a computed value or reaction is running, Eleganto stores it in a global context variable.
+So, let's dive into how observable change triggers reaction. When you run reaction for the first time with `.run()`, it sets itself as a global context for all `.get()` operations inside this reaction run:
 
 ```ts
 let subscriberContext: ISubscriber | null = null;
 ```
 
-When an observable is read, it checks this context:
+When an observable or computed is read, it checks this context:
 
 ```ts
 export const trackSubscriber = (
@@ -115,15 +70,7 @@ export const trackSubscriber = (
     subscriberContext._subscriptions.set(subscription, revision);
   }
 };
-```
 
-`trackSubscriber` builds two-way relation: writes the context reference to the observable `_subscribers` set, and adds the observable as context's `_subscriptions`, [along with the revision](#4-revisions).
-
-> Why `WeakRef` is used here? Check out [Weak Subscribers](#14-weak-subscribers) part.
-
-Inside `Observable.get()`, we call `trackSubscriber`.
-
-```ts
 class Observable<T> {
   readonly _subscribers = new Set<WeakRef<ISubscriber>>();
 
@@ -134,7 +81,15 @@ class Observable<T> {
 }
 ```
 
-So when this code runs:
+> We will frequently use words "subscriber" and "subscription" in the article. The intuition is as simple as in your favorite YouTube channel - if you are a "subscriber", you will get notifications about new "videos" (i.e. new values) from your "subscriptions".
+
+`trackSubscriber` function builds the `subscriber <-> subscription` relation. The WeakRef to `subscriberContext` is added to `_subscribers` of observable, and the observable (and its revision) is added to `_subscriptions` map of the subscriber.
+
+> Why `WeakRef`? We will answer this question later in the [Weak Subscribers](#14-weak-subscribers) section
+
+This way, computeds and reactions know to what observable values they are subscribed, and observale values know who to notify about changes.
+
+Quick example:
 
 ```ts
 const fullName = new Computed(() => {
@@ -142,12 +97,9 @@ const fullName = new Computed(() => {
 });
 ```
 
-both `firstName` and `lastName` know that `fullName` depends on them.
+`firstName` and `lastName` will include `fullName` as a subscriber, and `fullName` will include both in its subscriptions map.
 
-The computed value also knows what it depends on.
-
-That second direction is important. It allows the computed value to unsubscribe before every recompute. Without this, old dependencies would stay forever. Here's how it's done:
-
+When computed or reaction runs again, the first thing they do is **unsubscribe** from their subscriptions:
 
 ```ts
 const unsubscribeAndCleanup = (subscriber: ISubscriber): void => {
@@ -161,19 +113,12 @@ const unsubscribeAndCleanup = (subscriber: ISubscriber): void => {
 class Computed<T> {
   _recompute(): T {
     unsubscribeAndCleanup(this);
-    this._state = State.COMPUTING;
-
-    try {
-      return runInContext(this._fn, this);
-    } catch (err) {
-      this.destroy();
-      throw err;
-    }
+    // ...
   }
 }
 ```
 
-For example:
+Why is this needed? The reason is simple - in the new run subscriptions may change. For example:
 
 ```ts
 const title = new Computed(() => {
@@ -185,15 +130,75 @@ const title = new Computed(() => {
 });
 ```
 
-If `isAdmin` changes from `true` to `false`, the computed value should stop listening to `adminTitle`.
+Here `isAdmin` flag controls what subscriptions the computed will have. If it's true, it will subscribe to `isAdmin` and `adminTitle`; if it's false - to `isAdmin` and `userTitle`. There is no special graph diff - we just drop the old list and collect a new one.
 
-This is why every subscriber has a subscriptions map.
+## Notifying and Dirty State
 
-## 4. Revisions
+When observable changes, it notifies its subscribers:
 
-You may have noticed the word `revision`. A revision is a small token that changes when a value really changes.
+```ts
+export const notify = (subscribers: Set<WeakRef<ISubscriber>>): void => {
+  for (const ref of subscribers) {
+    ref.deref()?._notify();
+  }
+};
 
-In Eleganto, it is just a number, but it can be anything that supports strict equality (`a === b`):
+class Observable {
+  set(newValue: T): void {
+    // ...
+    notify(this._subscribers);
+    endTx();
+  }
+}
+```
+
+> `endTx()` runs scheduled reactions - more on this later.
+
+`_notify` method of a Computed subscriber is simple - just sets its state to `State.DIRTY` and propagates to other subscribers:
+
+```ts
+type ComputedState =
+  | State.CLEAN
+  | State.NOT_INITIALIZED
+  | State.COMPUTING
+  | State.DIRTY;
+
+class Computed<T> {
+  _notify() {
+    if (this._state === State.CLEAN) {
+      this._state = State.DIRTY;
+      notify(this._subscribers);
+    }
+  }
+}
+```
+
+DIRTY state signals about a **possible change** - so we don't rush to recompute things there. Computed values are **lazy**, and real recomputation happens later in backward pass.
+
+Reaction also has simple implementation - change state and schedule itself for execution:
+
+```ts
+class Reaction {
+  _notify(): void {
+    if (this._state === State.CLEAN) {
+      this._state = State.DIRTY;
+      scheduleReaction(this);
+    }
+  }
+}
+```
+
+The reaction queue doesn't need deduplication because scheduling happens only once due to CLEAN state condition.
+
+## Revisions
+
+I briefly mentioned that subscribers store their subscriptions along with **revision**:
+
+```ts
+subscriberContext._subscriptions.set(subscription, revision);
+```
+
+What is revision? **Revision** is an immutable token that follows a simple rule: same value - same revision, different value - different revision. Ordering doesn't matter, the only thing we need is strict equality `a === b`. For simplicity it's just a number:
 
 ```ts
 let revision = 0;
@@ -201,7 +206,7 @@ let revision = 0;
 export const newRevision = () => ++revision;
 ```
 
-An observable has a revision:
+When we assign a new value to observable, we update its revision:
 
 ```ts
 class Observable<T> {
@@ -212,28 +217,12 @@ class Observable<T> {
 
     this._value = newValue;
     this._revision = newRevision();
-
-    notify(this._subscribers);
-    endTx();
-  }
-
-  _updateRevision(): IRevision {
-    return this._revision;
+    // ...
   }
 }
 ```
 
-When a subscriber reads an observable, it stores the observable and its current revision:
-
-```ts
-subscriberContext._subscriptions.set(subscription, revision);
-```
-
-Later, the subscriber can check one thing:
-
-> Did any dependency move to a new revision?
-
-The check is small:
+Why is this needed? Basically, using revisions is a very simple way to know that something changed in your subscriptions:
 
 ```ts
 function revisionsChanged(
@@ -249,74 +238,26 @@ function revisionsChanged(
 }
 ```
 
-This is one of the main ideas in Eleganto.
+This function will return `true` if some revision doesn't match the one we recorded, meaning we should recompute or re-run. Notification says something may have changed. Revision check says whether it really matters.
 
-A dependency can notify you, but that does not always mean your final value changed.
+## Updating Computed revision
 
-Revisions make it possible to check that.
-
-## 5. Notifying and Dirty State
-
-When an observable changes, it notifies its subscribers:
+All subscriptions (i.e. Observable and Computed instances) have `_updateRevision()` method that returns the current revision. In Observable, it's very simple:
 
 ```ts
-export const notify = (subscribers: Set<WeakRef<ISubscriber>>): void => {
-  for (const ref of subscribers) {
-    ref.deref()?._notify();
-  }
-};
-```
-
-> As observable stores a `WeakRef` ([read here why](#14-weak-subscribers)), we need to call `.deref()` before.
-
-A computed value does not recompute immediately.
-
-It only becomes dirty and notifies its own subscribers:
-
-```ts
-class Computed<T> {
-  _notify() {
-    if (this._state === State.CLEAN) {
-      this._state = State.DIRTY;
-      notify(this._subscribers);
-    }
+class Observable {
+  _updateRevision(): IRevision {
+    return this._revision;
   }
 }
 ```
 
-A reaction also becomes dirty, but it is scheduled for execution:
+No action, just return the current one.
+
+Let's see what happens in Computed:
 
 ```ts
-class Reaction {
-  _notify(): void {
-    if (this._state === State.CLEAN) {
-      this._state = State.DIRTY;
-      scheduleReaction(this);
-    }
-  }
-}
-```
-
-So updates can move through the graph quickly, while expensive work is delayed.
-
-This is why lazy computed values are useful.
-
-## 6. Lazy Computed Values
-
-A computed value has four states:
-
-```ts
-type ComputedState =
-  | State.CLEAN
-  | State.NOT_INITIALIZED
-  | State.COMPUTING
-  | State.DIRTY;
-```
-
-Its revision update logic is the heart of the system:
-
-```ts
-class Computed<T> {
+class Computed {
   _updateRevision(): IRevision {
     if (this._state === State.CLEAN) {
       return this._revision;
@@ -329,7 +270,7 @@ class Computed<T> {
 
     if (this._state === State.DIRTY && revisionsChanged(this._subscriptions)) {
       const result = this._recompute();
-
+      
       if (this._value !== result) {
         this._value = result;
         this._revision = newRevision();
@@ -343,24 +284,20 @@ class Computed<T> {
 }
 ```
 
-Step by step:
+This is the central piece in the whole library. Let's read it line by line:
 
-1. If it is clean, return the current revision.
-2. If it was never computed, compute it.
-3. If it is dirty, check if its dependencies really changed.
-4. If they changed, recompute.
-5. If the final value changed, assign a new revision.
-6. Mark it clean.
+1. If we are in CLEAN state, return the current revision - no action needed.
+2. If we are NOT_INITIALIZED yet, recompute and assign a new revision.
+3. If we are in DIRTY state (means someone has notified us about a change), check subscription revisions.
+4. If subscription revisions changed, recompute.
+5. If the computed result changed for real, assign a new revision.
+6. Finally set a CLEAN state, so if the method runs again, it will follow condition from step 1.
 
-That is the full lifecycle.
+This is it. Let's now see how reactions use revisions to determine when they should run.
 
-The computed value does not need to know which dependency changed. It only needs to know whether its final value is still the same.
+## When Reactions Run
 
-## 8. When Reactions Run
-
-A reaction should not run only because something notified it.
-
-It should run when one of the values it observed has a new revision.
+Reaction has `_maybeRun()` method that checks if it really needs to run:
 
 ```ts
 class Reaction {
@@ -378,9 +315,9 @@ class Reaction {
 }
 ```
 
-This matters when a computed value is dirty, but its final value is still the same.
+> Reactions scheduled by notifications might not run - this is central point of revisions check.
 
-Example:
+It uses the same `revisionsChanged` function to determine if some subscription has changed. Here's an example:
 
 ```ts
 const temperature = new Observable(20);
@@ -398,24 +335,29 @@ reaction.run(); // warm: true
 temperature.set(21);
 ```
 
-1. `temperature` changed.
-2. `isWarm` became dirty.
-3. The reaction was scheduled.
+What will happen in this case? Let's track:
 
-But `isWarm` is still `true`, so its revision does not change. The reaction does not need to run again.
+1. Observable has a new value `21` and a new revision.
+2. Computed gets notified.
+3. Reaction gets notified and scheduled.
+4. Scheduled reaction runs `_maybeRun()` method and checks the revision of computed.
+5. Computed checks revision of `temperature` in `_updateRevision()` - it's changed - and recomputes.
+6. `if (this._value !== result)` check runs - and because the result is still `true`, new revision is not assigned in computed.
+7. Reaction gets the old revision, `revisionsChanged()` returns false
+8. The reaction body is not run, reaction is back to CLEAN
 
-This is a small detail, but it enables complex optimization. For example, instead of strict equality there can be shallow or deep equality, reducing unnecesary re-renders.
+This way, the reaction is effectively cancelled because `isWarm` hasn't changed.
 
-## 9. Transactions
+## Transactions
 
-Without transactions, two updates can cause two reaction runs:
+Setting two observables will run reaction two times after each:
 
 ```ts
-a.set(2);
-b.set(3);
+a.set(2); // reaction runs
+b.set(3); // reaction runs
 ```
 
-With a transaction, they cause one run:
+To batch the changes and run reactions only once, we introduce **transactions** (`tx`):
 
 ```ts
 tx(() => {
@@ -424,7 +366,7 @@ tx(() => {
 });
 ```
 
-The implementation is a depth counter:
+The implementation is just a depth counter:
 
 ```ts
 let txDepth = 0;
@@ -447,7 +389,7 @@ export const endTx = (): void => {
 };
 ```
 
-Nested transactions work because only the outer transaction flushes reactions.
+`endTx` is called when all transactions are completed:
 
 ```ts
 tx(() => {
@@ -455,17 +397,17 @@ tx(() => {
 
   tx(() => {
     b.set(2);
-  });
+  }); // txDepth is still 1
 
   c.set(3);
-});
+}); // txDepth is 0, run reactions
 ```
 
-The reaction queue flushes after the outer transaction ends.
+Outside `tx`, each `set()` behaves like a transaction of one update.
 
 ## 10. Reaction Scheduling
 
-The reaction queue is also small.
+When a reaction gets notified, it's scheduled for execution in the reaction queue:
 
 ```ts
 let reactionQueue: Reaction[] = [];
@@ -476,9 +418,7 @@ export const scheduleReaction = (reaction: Reaction): void => {
 };
 ```
 
-Reaction naturally cannot be scheduled twice because of `if (this._state === State.CLEAN` check in `_notify()` methos, so using a plain array is safe.
-
-When a transaction ends, Eleganto runs scheduled reactions.
+`endTx` then runs `runReactions`:
 
 ```ts
 const MAX_REACTION_ITERATIONS = 1000;
@@ -513,107 +453,27 @@ export const runReactions = (): void => {
 };
 ```
 
-The queue swap is important.
+Let's read it:
 
-If a reaction schedules more reactions while the current batch is running, those new reactions go to the next batch.
+1. We introduce `isRunning` flag that protects the runner from recursion. It's set in the beginning and reset in `finally` block. The check happens in `endTx`.
+2. In `while` loop, we take the reactions queue and swap it with new empty array. This way, newly scheduled reactions go to the new queue, leaving the current reaction batch running without changes.
+3. For reactions from the batch, we run `_maybeRun()` method with try/catch.
+4. If after running all reactions there are newly scheduled reactions, we repeat the loop of queue swap.
+5. If there were too many iterations of queue swapping, we then consider that something is wrong and throw an exception.
 
-This keeps execution predictable.
-
-The limit also protects the system from infinite reaction loops.
-
-## 11. Actions
-
-`action` is a convenience helper.
-
-It runs a function as an untracked transaction.
+Example of an infinite reaction that will throw this way:
 
 ```ts
-const increment = action(() => {
-  count.set(count.get() + 1);
+const r = new Reaction(() => {
+  a.set(a.get() + 1);
 });
+
+r.run();  // throws
 ```
 
-Why untracked?
+## Reaction Cleanup
 
-Because actions are commands. They mutate state. They should not become dependencies of the reaction or computed value that called them.
-
-The implementation is still small:
-
-```ts
-export const action = <T, Args extends any[]>(
-  fn: (this: any, ...args: Args) => T
-): ((...args: Args) => T) => {
-  return function (this: any, ...args: Args): T {
-    const oldSubscriber = setSubscriberContext(null);
-    txDepth += 1;
-
-    try {
-      return fn.apply(this, args);
-    } finally {
-      txDepth -= 1;
-      setSubscriberContext(oldSubscriber);
-      endTx();
-    }
-  };
-};
-```
-
-This is useful in application code:
-
-```ts
-const addTodo = action((title: string) => {
-  todos.set([...todos.get(), { title, done: false }]);
-});
-```
-
-The reads inside the action do not subscribe the caller.
-
-## 12. Untracked Reads
-
-Sometimes you want to read a value without creating a dependency.
-
-That is what `untracked` is for:
-
-```ts
-const reaction = new Reaction(() => {
-  console.log("tracked:", a.get());
-
-  untracked(() => {
-    console.log("not tracked:", b.get());
-  });
-});
-```
-
-Changing `a` will run the reaction again.
-
-Changing `b` will not.
-
-The implementation is just context switching:
-
-```ts
-export const runInContext = <T>(
-  fn: () => T,
-  subscriberContext: MaybeSubscriber = null
-): T => {
-  const oldSubscriber = setSubscriberContext(subscriberContext);
-
-  try {
-    return fn();
-  } finally {
-    setSubscriberContext(oldSubscriber);
-  }
-};
-
-export const untracked = runInContext;
-```
-
-## 13. Reaction Cleanup
-
-Reactions are used for side effects.
-
-Side effects often need cleanup.
-
-A reaction can return a destructor:
+Like `useEffect` in React, reaction body can return a cleanup function:
 
 ```ts
 const reaction = new Reaction(() => {
@@ -622,11 +482,13 @@ const reaction = new Reaction(() => {
   fetch(url.get(), { signal: controller.signal })
     .then(...)
     
-  return () => controller.abort()
+  return () => controller.abort();
 });
 ```
 
-Before the reaction runs again, Eleganto calls the previous destructor.
+(COMMENT: Good example. Since this is TypeScript code, `.then(...)` is not valid real code unless it is illustrative. That is okay, but some readers may prefer `.then(() => ...)` or a comment. Also add semicolon after `abort()` if you care about style.)
+
+We capture it in the `_destructor` field of reaction and run it before each body run:
 
 ```ts
 class Reaction {
@@ -653,34 +515,43 @@ class Reaction {
 }
 ```
 
-This makes reactions safer for DOM events, timers, subscriptions, and other effects.
+You should explicitly call `.destroy()` when the reaction isn't needed anymore.
 
-Call `destroy()` when the reaction is no longer needed.
+## Weak Subscribers
 
-## 14. Weak Subscribers
+So, why do we store `WeakRef` to the subscriber, not the object itself?
 
-A simple version of this system can leak memory.
+One big problem all reactive libraries are trying to solve is **garbage collection**. If we store strong references to computed or reactions, they will never go away:
 
-If every observable stores strong references to its subscribers, then unused computed values and reactions may never be garbage-collected.
+```ts
+const a = new Observable(1);
 
-Eleganto stores `WeakRef`s instead:
+{
+  const b = new Computed(() => a.get() * 2);
+
+  b.get();  // a will have b as subscriber
+}
+
+// b is not accessible anymore but still referenced from a
+// so it will stay forever
+```
+
+It's 2026, so modern solution to it is using **weak references**. They don't prevent subscribers from being garbage-collected. Each subscriber stores a WeakRef to itself that is used to reference it:
 
 ```ts
 class Computed<T> implements ISubscriber {
   readonly _weakRef = new WeakRef(this);
   readonly _subscriptions = new Map<ISubscription, IRevision>();
 }
+
+class Observable {
+  readonly _subscribers = new Set<WeakRef<ISubscriber>>();
+}
 ```
 
-Then observables store weak references:
+But still there is a problem - if computed or reaction was garbage-collected, the WeakRef still exists in each `_subscribers` set of its subscriptions. 
 
-```ts
-readonly _subscribers = new Set<WeakRef<ISubscriber>>();
-```
-
-This means an observable does not keep a computed value or reaction alive forever.
-
-To clean old weak references, Eleganto uses `FinalizationRegistry`:
+To solve it, we will use **FinalizationRegistry**. It allows us to run a function when object is garbage-collected. We pass the WeakRef and subscriptions map as held value, and then execute a simple loop over each subscription inside the finalization function:
 
 ```ts
 type HeldValue = [WeakRef<ISubscriber>, Map<ISubscription, IRevision>];
@@ -699,21 +570,15 @@ export const registerSubscriber = (subscriber: ISubscriber): void => {
 };
 ```
 
-`FinalizationRegistry` runs when the JavaScript engine decides - soon or later - but in average it removes the most of dead subscribers.
-
-For reactions with side effects, you should still call `destroy()`.
-
-Weak references help prevent memory leaks in the dependency graph, but explicit cleanup is still the right way to handle real side effects.
+FinalizationRegistry isn't deterministic, but on average it removes the most dead subscribers from the corresponding `_subscribers`. This is a safety net, not lifecycle management.
 
 ## 15. Robustness
 
-Small code still needs guardrails.
-
-Eleganto has a few important ones.
+Having a nice little core is good, but sometimes having extra checks and restrictions is needed to survive real code. Let's review some.
 
 ### Recursive computed values
 
-A computed value should not read itself while it is computing.
+Computed values should not be accessed when they are still in COMPUTING state:
 
 ```ts
 class Computed<T> {
@@ -730,13 +595,17 @@ class Computed<T> {
 }
 ```
 
-This catches mistakes early.
+Example:
+
+```ts
+const a = new Computed(() => a.get());
+
+a.get(); // throws
+```
 
 ### No mutations inside computed values
 
-Computed values should be pure.
-
-They should derive data. They should not change data.
+Computed values should also not mutate other Observables. They should only derive information:
 
 ```ts
 class Observable<T> {
@@ -750,41 +619,15 @@ class Observable<T> {
 }
 ```
 
-This rule removes many difficult edge cases.
-
-It also keeps the model clear:
-
-- `Computed` is for derived values.
-- `Reaction` is for side effects.
-- `Action` is for mutations.
-
-### Infinite reaction loops
-
-A reaction can update its own dependency:
-
-```ts
-const count = new Observable(0);
-
-const reaction = new Reaction(() => {
-  count.set(count.get() + 1);
-});
-```
-
-That would run forever.
-
-The scheduler stops after a fixed number of iterations, as shown above.
+This keeps the system one-directional: computed derives, reaction effects.
 
 ## 16. Homework for the Reader
 
-This architecture is enough to pass many tests from standard reactive framework test suite.
-
-There are a few tests that do not pass out of the box. I leave them as homework for the reader.
+That's all! In the current state it passes **almost** all tests from reactive frameworks test suite, but some edge cases are left as exercises:
 
 ### Revert of values
 
-If an observable changes inside a transaction and then returns to its initial value before the transaction ends, reactions should not run.
-
-Example:
+When an observable returns to its initial value by the end of a transaction, reactions should not run:
 
 ```ts
 const count = new Observable(1);
@@ -801,23 +644,11 @@ tx(() => {
 });
 ```
 
-In the current simple version, the observable gets a new revision when it changes to `2`. Then it gets another new revision when it changes back to `1`.
-
-A smarter version can store the initial transaction value and initial transaction revision. At the end, if the value is equal to the initial value, it can restore the initial revision.
-
-One possible direction:
-
-- add `txInitialValue` to `Observable`;
-- add `txInitialRevision` to `Observable`;
-- remember them on the first change inside a transaction;
-- compare the final value with the initial value in `_updateRevision()`
-- restore the initial revision if they are equal.
-
-This keeps reactions from running when the final visible value did not change.
+Hint: add two fields to Observable class: `txInitialValue` and `txInitialRevision`. On first `.set()` call, set these fields to current value and revision. Then, in `_updateRevision()` check if current value is equal to `txInitialValue`, and revert the revision to initial.
 
 ### Nested reactions
 
-Sometimes a reaction creates another reaction.
+Reactions can create nested reactions:
 
 ```ts
 const outer = new Reaction(() => {
@@ -831,14 +662,7 @@ const outer = new Reaction(() => {
 });
 ```
 
-When the outer reaction runs again, the old inner reaction should be destroyed.
+We need to destroy nested reactions before a new run of the outer reaction.
 
-A simple direction:
+Hint: add `_children` field to Reaction. In `.run()` method, check if current context is Reaction and record itself to the context's `_children`. In `._unsubscribeAndCleanup()` loop over child reactions and destroy them before own destruction.
 
-- add a `_children` array to `Reaction`;
-- check if a reaction is created while another reaction is running;
-- add the new reaction to the parent reaction;
-- destroy old children before the parent reaction runs again;
-- destroy children when the parent is destroyed.
-
-This keeps nested side effects under control.
