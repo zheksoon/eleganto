@@ -83,6 +83,24 @@ class Observable<T> {
 
 > We will frequently use words "subscriber" and "subscription" in the article. The intuition is as simple as in your favorite YouTube channel - if you are a "subscriber", you will get notifications about new "videos" (i.e. new values) from your "subscriptions".
 
+Here's the TypeScript definition of `ISubscriber` and `ISubscription` interfaces we used above:
+
+```ts
+interface ISubscriber {
+  readonly _weakRef: WeakRef<ISubscriber>;
+  readonly _subscriptions: Map<ISubscription, IRevision>;
+
+  _notify(): void;
+}
+
+interface ISubscription {
+  readonly _subscribers: Set<WeakRef<ISubscriber>>;
+  _updateRevision(): IRevision;
+}
+
+type IRevision = number;
+```
+
 `trackSubscriber` function builds the `subscriber <-> subscription` relation. The WeakRef to `subscriberContext` is added to `_subscribers` of observable, and the observable (and its revision) is added to `_subscriptions` map of the subscriber.
 
 > Why `WeakRef`? We will answer this question later in the [Weak Subscribers](#14-weak-subscribers) section
@@ -113,7 +131,14 @@ const unsubscribeAndCleanup = (subscriber: ISubscriber): void => {
 class Computed<T> {
   _recompute(): T {
     unsubscribeAndCleanup(this);
-    // ...
+    this._state = State.COMPUTING;
+
+    try {
+      return runInContext(this._fn, this);
+    } catch (err) {
+      this.destroy();
+      throw err;
+    }
   }
 }
 ```
@@ -131,6 +156,25 @@ const title = new Computed(() => {
 ```
 
 Here `isAdmin` flag controls what subscriptions the computed will have. If it's true, it will subscribe to `isAdmin` and `adminTitle`; if it's false - to `isAdmin` and `userTitle`. There is no special graph diff - we just drop the old list and collect a new one.
+
+Above, in `_recompute()` method, we used `runInContext` helper. Here's how it's defined:
+
+```ts
+export const runInContext = <T>(
+  fn: () => T,
+  subscriberContext: MaybeSubscriber = null
+): T => {
+  const oldSubscriber = setSubscriberContext(subscriberContext);
+
+  try {
+    return fn();
+  } finally {
+    setSubscriberContext(oldSubscriber);
+  }
+};
+```
+
+This simple helper allows to easily run a function in specific context. `_recompute()` sets the Computed instance as the context, so all `.get()` operations there will be correctly tracked.
 
 ## Notifying and Dirty State
 
@@ -295,6 +339,28 @@ This is the central piece in the whole library. Let's read it line by line:
 
 This is it. Let's now see how reactions use revisions to determine when they should run.
 
+The `_updateRevision()` is called on each `.get()` operation of the computed as well:
+
+```ts
+class Computed {
+  get(): T {
+    if (this._state === State.COMPUTING) {
+      throw new Error("Recursive computed call");
+    }
+
+    const revision = this._updateRevision();
+
+    trackSubscriber(this, revision);
+
+    return this._value!;
+  }
+}
+```
+
+Notice the order: computed first updates its own revision, then tracks itself. This is how computed values can depend on other computed values.
+
+Updating revision before each `.get()` keeps the value fresh no matter what. Even accessing the computed mid-transaction will always actualize the value and the revision. This is an important property of a **transparent** functional reactive programming libraries (sometimes abbreviated as **TFRP** by the first letters).
+
 ## When Reactions Run
 
 Reaction has `_maybeRun()` method that checks if it really needs to run:
@@ -312,10 +378,16 @@ class Reaction {
       this._state = State.CLEAN;
     }
   }
+
+  run(): void {
+    this._state = State.CLEAN;
+    this._unsubscribeAndCleanup();
+    this._destructor = txInContext(this._fn, this);
+  }
 }
 ```
 
-> Reactions scheduled by notifications might not run - this is central point of revisions check.
+> Reactions scheduled by notifications might not run - this is the central point of revisions check and computed lazyness.
 
 It uses the same `revisionsChanged` function to determine if some subscription has changed. Here's an example:
 
@@ -403,7 +475,79 @@ tx(() => {
 }); // txDepth is 0, run reactions
 ```
 
-Outside `tx`, each `set()` behaves like a transaction of one update.
+Outside `tx`, each `.set()` behaves like a transaction of one update:
+
+```ts
+class Observable {
+  set(newValue: T): void {
+    // ...
+    notify(this._subscribers);
+    endTx();  // this is no-op then inside transaction
+  }
+}
+```
+
+`txInContext` (used in Reaction's `.run()` method) is a simple combination of `runInContext` and `tx`:
+
+```ts
+export const txInContext = <T>(
+  fn: () => T,
+  subscriber: ISubscriber | null = null
+): T => {
+  const oldSubscriber = setSubscriberContext(subscriber);
+  txDepth += 1;
+
+  try {
+    return fn();
+  } finally {
+    txDepth -= 1;
+    setSubscriberContext(oldSubscriber);
+    endTx();
+  }
+};
+```
+
+Reaction body should always run in a transaction as it's supposed to mutate observable values.
+
+## Actions and untracked reads
+
+If you used MobX or preact-signals, you have seen actions. **Action** is just a function that wraps any given `fn` in an untracked transaction: 
+
+```ts
+export const action = <T, Args extends any[]>(
+  fn: (this: any, ...args: Args) => T
+): ((...args: Args) => T) => {
+  return function (this: any, ...args: Args): T {
+    const oldSubscriber = setSubscriberContext(null);
+    txDepth += 1;
+
+    try {
+      return fn.apply(this, args);
+    } finally {
+      txDepth -= 1;
+      setSubscriberContext(oldSubscriber);
+      endTx();
+    }
+  };
+};
+```
+
+Why it's needed and sometimes even enforced (like in MobX)? **Actions** mutate the application state, and they can read other observable values to achieve its goal. Without action wrapper it will track the `.get()` operations in the reaction. To avoid this, action sets `null` context, making all reads needed for the mutation isolated from reaction that calls it:
+
+```ts
+const increment = action(() => {
+  count.set(count.get() + 1);
+});
+
+// somewhere in reaction or event handler
+increment();  // it won't introduce dependency on count
+```
+
+`untracked` is just an alias to `runInContext`:
+
+```ts
+export const untracked = runInContext;
+```
 
 ## 10. Reaction Scheduling
 
