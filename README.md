@@ -8,7 +8,7 @@ Once I tried to understand how MobX works. This is indeed a very cool library fo
 
 I started to build my own just to understand the idea - and there were many of them. `dipole`, `eveline`, `onek` - they all had one goal - a nice, small, full-featured implementation. But each time it missed some kind of beauty I was aiming for. And finally, after some years of the idea boiling in my head, I found a shape that felt right. I called it **Eleganto**.
 
-Eleganto isn't yet another library marketed as "the only blazing-fast state management you shold use". Eleganto is made to be **understandable** - the idea shold fit in your head in 15 minutes, while being perfectly functional. I won't put bundlephobia badge on it because it shouldn't be included in your bundle - it shold be included in your head. And only then, if you want, you can build something with it.
+Eleganto isn't yet another library marketed as "the only blazing-fast state management you should use". Eleganto is made to be **understandable** - the idea should fit in your head in 15 minutes, while being perfectly functional. I won't put bundlephobia badge on it because it shouldn't be included in your bundle - it should be included in your head. And only then, if you want, you can build something with it.
 
 ## The API
 
@@ -47,8 +47,21 @@ If not, here's a brief explanation of what is happening:
 
 * `Observable` creates a reactive value. It has `.get()` and `.set()` methods
 * `Computed` creates a reactive value derived from other observable or computed values. It has `.get()` method. Computed values are lazy and don't get evaluated before `.get()`
-* `Reaction` is a side effect that runs when observed values change. It's syncronous and needs to run explicitly for the first time using `.run()` method. It can be destroyed with `.destroy()` method.
+* `Reaction` is a side effect that runs when observed values change. It's synchronous and needs to run explicitly for the first time using `.run()` method. It can be destroyed with `.destroy()` method.
 * `tx` is transaction - it batches updates of observable values and runs reactions at the end.
+
+There are also some convenient helpers:
+
+```ts
+
+const increment = action(() => {
+  // some mutation logic
+});
+
+untracked(() => a.get()); // a doesn't get tracked
+```
+
+They will be explained in [Actions and untracked reads](#actions-and-untracked-reads).
 
 ## No Magic
 
@@ -103,9 +116,9 @@ type IRevision = number;
 
 `trackSubscriber` function builds the `subscriber <-> subscription` relation. The WeakRef to `subscriberContext` is added to `_subscribers` of observable, and the observable (and its revision) is added to `_subscriptions` map of the subscriber.
 
-> Why `WeakRef`? We will answer this question later in the [Weak Subscribers](#14-weak-subscribers) section
+> Why `WeakRef`? We will answer this question later in the [Weak Subscribers](#weak-subscribers) section
 
-This way, computeds and reactions know to what observable values they are subscribed, and observale values know who to notify about changes.
+This way, computeds and reactions know to what observable values they are subscribed, and observable values know who to notify about changes.
 
 Quick example:
 
@@ -359,7 +372,9 @@ class Computed {
 
 Notice the order: computed first updates its own revision, then tracks itself. This is how computed values can depend on other computed values.
 
-Updating revision before each `.get()` keeps the value fresh no matter what. Even accessing the computed mid-transaction will always actualize the value and the revision. This is an important property of a **transparent** functional reactive programming libraries (sometimes abbreviated as **TFRP** by the first letters).
+Updating the revision before each `.get()` keeps the value fresh. Even if you read a computed value in the middle of a transaction, it still gives the current value.
+
+This is an important property: reads are transparent. You do not need to know whether the value is stored or derived.
 
 ## When Reactions Run
 
@@ -387,7 +402,7 @@ class Reaction {
 }
 ```
 
-> Reactions scheduled by notifications might not run - this is the central point of revisions check and computed lazyness.
+> Reactions scheduled by notifications might not run - this is the central point of revisions check and computed laziness.
 
 It uses the same `revisionsChanged` function to determine if some subscription has changed. Here's an example:
 
@@ -507,49 +522,9 @@ export const txInContext = <T>(
 };
 ```
 
-Reaction body should always run in a transaction as it's supposed to mutate observable values.
+Reaction body runs in a transaction because effects may update observable values. If they do, nested updates are batched and flushed after the body finishes.
 
-## Actions and untracked reads
-
-If you used MobX or preact-signals, you have seen actions. **Action** is just a function that wraps any given `fn` in an untracked transaction: 
-
-```ts
-export const action = <T, Args extends any[]>(
-  fn: (this: any, ...args: Args) => T
-): ((...args: Args) => T) => {
-  return function (this: any, ...args: Args): T {
-    const oldSubscriber = setSubscriberContext(null);
-    txDepth += 1;
-
-    try {
-      return fn.apply(this, args);
-    } finally {
-      txDepth -= 1;
-      setSubscriberContext(oldSubscriber);
-      endTx();
-    }
-  };
-};
-```
-
-Why it's needed and sometimes even enforced (like in MobX)? **Actions** mutate the application state, and they can read other observable values to achieve its goal. Without action wrapper it will track the `.get()` operations in the reaction. To avoid this, action sets `null` context, making all reads needed for the mutation isolated from reaction that calls it:
-
-```ts
-const increment = action(() => {
-  count.set(count.get() + 1);
-});
-
-// somewhere in reaction or event handler
-increment();  // it won't introduce dependency on count
-```
-
-`untracked` is just an alias to `runInContext`:
-
-```ts
-export const untracked = runInContext;
-```
-
-## 10. Reaction Scheduling
+## Reaction Scheduling
 
 When a reaction gets notified, it's scheduled for execution in the reaction queue:
 
@@ -630,8 +605,6 @@ const reaction = new Reaction(() => {
 });
 ```
 
-(COMMENT: Good example. Since this is TypeScript code, `.then(...)` is not valid real code unless it is illustrative. That is okay, but some readers may prefer `.then(() => ...)` or a comment. Also add semicolon after `abort()` if you care about style.)
-
 We capture it in the `_destructor` field of reaction and run it before each body run:
 
 ```ts
@@ -640,7 +613,7 @@ class Reaction {
 
   _unsubscribeAndCleanup(): void {
     unsubscribeAndCleanup(this);
-    this._destructor && untracked(this._destructor);
+    this._destructor && runInContext(this._destructor, null);
     this._destructor = null;
   }
 
@@ -716,7 +689,7 @@ export const registerSubscriber = (subscriber: ISubscriber): void => {
 
 FinalizationRegistry isn't deterministic, but on average it removes the most dead subscribers from the corresponding `_subscribers`. This is a safety net, not lifecycle management.
 
-## 15. Robustness
+## Robustness
 
 Having a nice little core is good, but sometimes having extra checks and restrictions is needed to survive real code. Let's review some.
 
@@ -765,7 +738,48 @@ class Observable<T> {
 
 This keeps the system one-directional: computed derives, reaction effects.
 
-## 16. Homework for the Reader
+## Actions and untracked reads
+
+If you used MobX or preact-signals, you have seen actions. **Action** is just a function that wraps any given `fn` in an untracked transaction: 
+
+```ts
+export const action = <T, Args extends any[]>(
+  fn: (this: any, ...args: Args) => T
+): ((...args: Args) => T) => {
+  return function (this: any, ...args: Args): T {
+    const oldSubscriber = setSubscriberContext(null);
+    txDepth += 1;
+
+    try {
+      return fn.apply(this, args);
+    } finally {
+      txDepth -= 1;
+      setSubscriberContext(oldSubscriber);
+      endTx();
+    }
+  };
+};
+```
+
+Why it's needed and sometimes even enforced (like in MobX)? **Actions** mutate the application state, and they can read other observable values to achieve its goal. Without action wrapper it will track the `.get()` operations in the reaction. To avoid this, action sets `null` context, making all reads needed for the mutation isolated from reaction that calls it:
+
+```ts
+const increment = action(() => {
+  count.set(count.get() + 1);
+});
+
+// if called inside a reaction,
+// count.get() inside increment is not tracked by that reaction
+increment();
+```
+
+`untracked` is just an alias to `runInContext`:
+
+```ts
+export const untracked = runInContext;
+```
+
+## Homework for the Reader
 
 That's all! In the current state it passes **almost** all tests from reactive frameworks test suite, but some edge cases are left as exercises:
 
