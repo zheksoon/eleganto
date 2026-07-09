@@ -350,8 +350,6 @@ This is the central piece in the whole library. Let's read it line by line:
 5. If the computed result changed for real, assign a new revision.
 6. Finally set a CLEAN state, so if the method runs again, it will follow condition from step 1.
 
-This is it. Let's now see how reactions use revisions to determine when they should run.
-
 The `_updateRevision()` is called on each `.get()` operation of the computed as well:
 
 ```ts
@@ -434,95 +432,6 @@ What will happen in this case? Let's track:
 8. The reaction body is not run, reaction is back to CLEAN
 
 This way, the reaction is effectively cancelled because `isWarm` hasn't changed.
-
-## Transactions
-
-Setting two observables will run reaction two times after each:
-
-```ts
-a.set(2); // reaction runs
-b.set(3); // reaction runs
-```
-
-To batch the changes and run reactions only once, we introduce **transactions** (`tx`):
-
-```ts
-tx(() => {
-  a.set(2);
-  b.set(3);
-});
-```
-
-The implementation is just a depth counter:
-
-```ts
-let txDepth = 0;
-
-export const tx = <T>(fn: () => T): T => {
-  txDepth += 1;
-
-  try {
-    return fn();
-  } finally {
-    txDepth -= 1;
-    endTx();
-  }
-};
-
-export const endTx = (): void => {
-  if (!txDepth && !isRunning) {
-    runReactions();
-  }
-};
-```
-
-`endTx` is called when all transactions are completed:
-
-```ts
-tx(() => {
-  a.set(1);
-
-  tx(() => {
-    b.set(2);
-  }); // txDepth is still 1
-
-  c.set(3);
-}); // txDepth is 0, run reactions
-```
-
-Outside `tx`, each `.set()` behaves like a transaction of one update:
-
-```ts
-class Observable {
-  set(newValue: T): void {
-    // ...
-    notify(this._subscribers);
-    endTx();  // this is no-op then inside transaction
-  }
-}
-```
-
-`txInContext` (used in Reaction's `.run()` method) is a simple combination of `runInContext` and `tx`:
-
-```ts
-export const txInContext = <T>(
-  fn: () => T,
-  subscriber: ISubscriber | null = null
-): T => {
-  const oldSubscriber = setSubscriberContext(subscriber);
-  txDepth += 1;
-
-  try {
-    return fn();
-  } finally {
-    txDepth -= 1;
-    setSubscriberContext(oldSubscriber);
-    endTx();
-  }
-};
-```
-
-Reaction body runs in a transaction because effects may update observable values. If they do, nested updates are batched and flushed after the body finishes.
 
 ## Reaction Scheduling
 
@@ -633,6 +542,95 @@ class Reaction {
 ```
 
 You should explicitly call `.destroy()` when the reaction isn't needed anymore.
+
+## Transactions
+
+Setting two observables will run reaction two times after each:
+
+```ts
+a.set(2); // reaction runs
+b.set(3); // reaction runs
+```
+
+To batch the changes and run reactions only once, we introduce **transactions** (`tx`):
+
+```ts
+tx(() => {
+  a.set(2);
+  b.set(3);
+});
+```
+
+The implementation is just a depth counter:
+
+```ts
+let txDepth = 0;
+
+export const tx = <T>(fn: () => T): T => {
+  txDepth += 1;
+
+  try {
+    return fn();
+  } finally {
+    txDepth -= 1;
+    endTx();
+  }
+};
+
+export const endTx = (): void => {
+  if (!txDepth && !isRunning) {
+    runReactions();
+  }
+};
+```
+
+`endTx` is called when all transactions are completed:
+
+```ts
+tx(() => {
+  a.set(1);
+
+  tx(() => {
+    b.set(2);
+  }); // txDepth is still 1
+
+  c.set(3);
+}); // txDepth is 0, run reactions
+```
+
+Outside `tx`, each `.set()` behaves like a transaction of one update:
+
+```ts
+class Observable {
+  set(newValue: T): void {
+    // ...
+    notify(this._subscribers);
+    endTx();  // this is no-op when inside transaction
+  }
+}
+```
+
+`txInContext` (used in Reaction's `.run()` method) is a simple combination of `runInContext` and `tx`:
+
+```ts
+export const txInContext = <T>(
+  fn: () => T,
+  subscriber: ISubscriber | null = null
+): T => {
+  const oldSubscriber = setSubscriberContext(subscriber);
+  txDepth += 1;
+
+  try {
+    return fn();
+  } finally {
+    txDepth -= 1;
+    setSubscriberContext(oldSubscriber);
+    endTx();
+  }
+};
+```
+
+Reaction body runs in a transaction because effects may update observable values. If they do, nested updates are batched and flushed after the body finishes.
 
 ## Weak Subscribers
 
@@ -781,7 +779,7 @@ export const untracked = runInContext;
 
 ## Homework for the Reader
 
-That's all! In the current state it passes **almost** all tests from reactive frameworks test suite, but some edge cases are left as exercises:
+That's all! You have seen 100% of the Eleganto source. In the current state it passes **almost** all tests from reactive frameworks test suite, but some edge cases are left as exercises:
 
 ### Revert of values
 
