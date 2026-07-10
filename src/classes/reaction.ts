@@ -33,14 +33,10 @@ export class Reaction implements IReaction, ISubscriber {
     }
   }
 
-  _maybeRun() {
-    if (this._state === State.DESTROYED) {
-      return;
-    }
-
-    if (this._state === State.DIRTY && revisionsChanged(this._subscriptions)) {
-      this.run();
-    } else {
+  _shouldRun() {
+    try {
+      return this._state === State.DIRTY && revisionsChanged(this._subscriptions);
+    } finally {
       this._state = State.CLEAN;
     }
   }

@@ -21,7 +21,6 @@ export interface IObservable<T> {
 
 export interface IComputed<T> {
   get(): T;
-  destroy(): void;
 }
 
 export type Destructor = (() => void) | null | undefined | void;
@@ -31,10 +30,3 @@ export interface IReaction {
   destroy(): void;
   run(): void;
 }
-
-export type Equals<T> = (prev: T, next: T) => boolean;
-
-export type IOptions = {
-  reactionScheduler?: (runner: () => void) => void;
-  reactionExceptionHandler?: (exception: Error) => void;
-};

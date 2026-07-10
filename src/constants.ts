@@ -4,4 +4,5 @@ export const enum State {
   CLEAN,
   DIRTY,
   DESTROYED,
+  THROWN,
 }

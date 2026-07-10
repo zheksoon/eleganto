@@ -1,13 +1,25 @@
 import { State } from "../constants";
 import { runInContext, trackSubscriber } from "../subscriberContext";
-import type { IComputed, IRevision, ISubscriber, ISubscription } from "../types";
+import type {
+  IComputed,
+  IRevision,
+  ISubscriber,
+  ISubscription,
+} from "../types";
 import { notify, revisionsChanged, unsubscribeAndCleanup } from "./common";
 import { registerSubscriber } from "../finalizationRegistry";
 import { newRevision } from "./revision";
 
-type ComputedState = State.CLEAN | State.NOT_INITIALIZED | State.COMPUTING | State.DIRTY;
+type ComputedState =
+  | State.CLEAN
+  | State.NOT_INITIALIZED
+  | State.COMPUTING
+  | State.DIRTY
+  | State.THROWN;
 
-export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscription {
+export class Computed<T = any>
+  implements IComputed<T>, ISubscriber, ISubscription
+{
   readonly _weakRef = new WeakRef(this);
   readonly _subscriptions: Map<ISubscription, IRevision> = new Map();
   readonly _subscribers: Set<WeakRef<ISubscriber>> = new Set();
@@ -20,9 +32,11 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
     registerSubscriber(this);
   }
 
-  _notify() {
+  _notify(): void {
     if (this._state === State.CLEAN) {
       this._state = State.DIRTY;
+      notify(this._subscribers);
+    } else if (this._state === State.THROWN) {
       notify(this._subscribers);
     }
   }
@@ -32,7 +46,7 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
       return this._revision;
     }
 
-    if (this._state === State.NOT_INITIALIZED) {
+    if (this._state === State.NOT_INITIALIZED || this._state === State.THROWN) {
       this._value = this._recompute();
       this._revision = newRevision();
     }
@@ -57,15 +71,9 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
     try {
       return runInContext(this._fn, this);
     } catch (err) {
-      this.destroy();
+      this._state = State.THROWN;
       throw err;
     }
-  }
-
-  destroy(): void {
-    unsubscribeAndCleanup(this);
-    this._state = State.NOT_INITIALIZED;
-    this._value = undefined;
   }
 
   get(): T {
@@ -73,10 +81,11 @@ export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscripti
       throw new Error("Recursive computed call");
     }
 
-    const revision = this._updateRevision();
-
-    trackSubscriber(this, revision);
-
-    return this._value!;
+    try {
+      this._updateRevision();
+      return this._value!;
+    } finally {
+      trackSubscriber(this, this._revision);
+    }
   }
 }
