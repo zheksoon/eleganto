@@ -1,12 +1,13 @@
 {
   "name": "eleganto",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "main": "./dist/index.mjs",
   "types": "./dist/index.d.mts",
   "files": [
     "dist",
-    "src"
+    "src",
+    "README.md"
   ],
   "exports": {
     ".": {

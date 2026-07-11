@@ -45,7 +45,7 @@ export class Reaction implements IReaction, ISubscriber {
     }
   }
 
-  _resetAfterInfiniteLoop(): void {
+  _reset(): void {
     if (this._state !== State.DIRTY) {
       return;
     }

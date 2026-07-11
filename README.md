@@ -28,7 +28,7 @@ const printer = new Reaction(() => {
 
 printer.run(); // C is 3
 
-a.set(5);  // C is 7
+a.set(5); // C is 7
 b.set(10); // C is 15
 
 // transaction batches updates
@@ -45,15 +45,14 @@ If you have ever used MobX, preact-signals, SolidJS - this all looks familiar to
 
 If not, here's a brief explanation of what is happening:
 
-* `Observable` creates a reactive value. It has `.get()` and `.set()` methods
-* `Computed` creates a reactive value derived from other observable or computed values. It has `.get()` method. Computed values are lazy and don't get evaluated before `.get()`
-* `Reaction` is a side effect that runs when observed values change. It's synchronous and needs to run explicitly for the first time using `.run()` method. It can be destroyed with `.destroy()` method.
-* `tx` is transaction - it batches updates of observable values and runs reactions at the end.
+- `Observable` creates a reactive value. It has `.get()` and `.set()` methods
+- `Computed` creates a reactive value derived from other observable or computed values. It has `.get()` method. Computed values are lazy and don't get evaluated before `.get()`
+- `Reaction` is a side effect that runs when observed values change. It's synchronous and needs to run explicitly for the first time using `.run()` method. It can be destroyed with `.destroy()` method.
+- `tx` is transaction - it batches updates of observable values and runs reactions at the end.
 
 There are also some convenient helpers:
 
 ```ts
-
 const increment = action(() => {
   // some mutation logic
 });
@@ -74,10 +73,7 @@ let subscriberContext: ISubscriber | null = null;
 When an observable or computed is read, it checks this context:
 
 ```ts
-export const trackSubscriber = (
-  subscription: ISubscription,
-  revision: IRevision
-): void => {
+export const trackSubscriber = (subscription: ISubscription, revision: IRevision): void => {
   if (subscriberContext) {
     subscription._subscribers.add(subscriberContext._weakRef);
     subscriberContext._subscriptions.set(subscription, revision);
@@ -94,7 +90,7 @@ class Observable<T> {
 }
 ```
 
-> We will frequently use words "subscriber" and "subscription" in the article. The intuition is as simple as in your favorite YouTube channel - if you are a "subscriber", you will get notifications about new "videos" (i.e. new values) from your "subscriptions".
+> We will frequently use words "subscriber" and "subscription" in the article. The intuition is as simple as in your favorite YouTube channel - if you are a "subscriber", you will get notifications about new "videos" (i.e. new values) from your "subscriptions". In other words, "subscriber" - something that receives notifications (Computed and Reaction), and "subscription" - something that sends notifications (Observable and Computed).
 
 Here's the TypeScript definition of `ISubscriber` and `ISubscription` interfaces we used above:
 
@@ -149,7 +145,7 @@ class Computed<T> {
     try {
       return runInContext(this._fn, this);
     } catch (err) {
-      this.destroy();
+      this._state = State.THROWN;
       throw err;
     }
   }
@@ -173,10 +169,7 @@ Here `isAdmin` flag controls what subscriptions the computed will have. If it's 
 Above, in `_recompute()` method, we used `runInContext` helper. Here's how it's defined:
 
 ```ts
-export const runInContext = <T>(
-  fn: () => T,
-  subscriberContext: MaybeSubscriber = null
-): T => {
+export const runInContext = <T>(fn: () => T, subscriberContext: MaybeSubscriber = null): T => {
   const oldSubscriber = setSubscriberContext(subscriberContext);
 
   try {
@@ -214,21 +207,21 @@ class Observable {
 `_notify` method of a Computed subscriber is simple - just sets its state to `State.DIRTY` and propagates to other subscribers:
 
 ```ts
-type ComputedState =
-  | State.CLEAN
-  | State.NOT_INITIALIZED
-  | State.COMPUTING
-  | State.DIRTY;
+type ComputedState = State.CLEAN | State.NOT_INITIALIZED | State.COMPUTING | State.DIRTY;
 
 class Computed<T> {
   _notify() {
     if (this._state === State.CLEAN) {
       this._state = State.DIRTY;
       notify(this._subscribers);
+    } else if (this._state === State.THROWN) {
+      notify(this._subscribers);
     }
   }
 }
 ```
+
+The logic is simple - if we are clean, we set the state to dirty and notify subscribers; if we are in a thrown state, we also notify subscribers because it's possible that the error has been fixed.
 
 DIRTY state signals about a **possible change** - so we don't rush to recompute things there. Computed values are **lazy**, and real recomputation happens later in backward pass.
 
@@ -282,20 +275,22 @@ class Observable<T> {
 Why is this needed? Basically, using revisions is a very simple way to know that something changed in your subscriptions:
 
 ```ts
-function revisionsChanged(
-  subscriptions: Map<ISubscription, IRevision>
-): boolean {
+export const revisionsChanged = (subscriptions: Map<ISubscription, IRevision>): boolean => {
   for (const [subscription, revision] of subscriptions) {
-    if (subscription._updateRevision() !== revision) {
+    try {
+      if (subscription._updateRevision() !== revision) {
+        return true;
+      }
+    } catch {
       return true;
     }
   }
 
   return false;
-}
+};
 ```
 
-This function will return `true` if some revision doesn't match the one we recorded, meaning we should recompute or re-run. Notification says something may have changed. Revision check says whether it really matters.
+This function will return `true` if some revision doesn't match the one we recorded, meaning we should recompute or re-run. Errors during the revision update also mean we should re-run. Notification says something may have changed. Revision check says whether it really matters.
 
 ## Updating Computed revision
 
@@ -320,14 +315,14 @@ class Computed {
       return this._revision;
     }
 
-    if (this._state === State.NOT_INITIALIZED) {
+    if (this._state === State.NOT_INITIALIZED || this._state === State.THROWN) {
       this._value = this._recompute();
       this._revision = newRevision();
     }
 
     if (this._state === State.DIRTY && revisionsChanged(this._subscriptions)) {
       const result = this._recompute();
-      
+
       if (this._value !== result) {
         this._value = result;
         this._revision = newRevision();
@@ -344,7 +339,7 @@ class Computed {
 This is the central piece in the whole library. Let's read it line by line:
 
 1. If we are in CLEAN state, return the current revision - no action needed.
-2. If we are NOT_INITIALIZED yet, recompute and assign a new revision.
+2. If we are NOT_INITIALIZED or THROWN (after error in previous run), recompute and assign a new revision.
 3. If we are in DIRTY state (means someone has notified us about a change), check subscription revisions.
 4. If subscription revisions changed, recompute.
 5. If the computed result changed for real, assign a new revision.
@@ -359,16 +354,19 @@ class Computed {
       throw new Error("Recursive computed call");
     }
 
-    const revision = this._updateRevision();
-
-    trackSubscriber(this, revision);
-
-    return this._value!;
+    try {
+      this._updateRevision();
+      return this._value!;
+    } finally {
+      trackSubscriber(this, this._revision);
+    }
   }
 }
 ```
 
-Notice the order: computed first updates its own revision, then tracks itself. This is how computed values can depend on other computed values.
+Notice the order: computed first updates its own revision and the value, then tracks itself. This is how computed values can depend on other computed values.
+
+If an error happens during recompute, we still track the dependency in the `finally` block, so notifications will propagate to its subscribers even in the THROWN state.
 
 Updating the revision before each `.get()` keeps the value fresh. Even if you read a computed value in the middle of a transaction, it still gives the current value.
 
@@ -381,14 +379,14 @@ Reaction has `_maybeRun()` method that checks if it really needs to run:
 ```ts
 class Reaction {
   _maybeRun() {
-    if (this._state === State.DESTROYED) {
-      return;
+    if (this._state !== State.DIRTY) {
+      return false;
     }
 
-    if (this._state === State.DIRTY && revisionsChanged(this._subscriptions)) {
+    this._state = State.CLEAN;
+
+    if (revisionsChanged(this._subscriptions)) {
       this.run();
-    } else {
-      this._state = State.CLEAN;
     }
   }
 
@@ -457,20 +455,23 @@ export const runReactions = (): void => {
   isRunning = true;
 
   let i = 0;
-
   try {
     while (reactionQueue.length > 0) {
       const reactions = reactionQueue;
       reactionQueue = [];
 
       if (++i > MAX_REACTION_ITERATIONS) {
+        for (const reaction of reactions) {
+          reaction._reset();
+        }
+
         throw new Error("Infinite reactions loop");
       }
 
       for (const reaction of reactions) {
         try {
           reaction._maybeRun();
-        } catch (exception) {
+        } catch (exception: any) {
           console.error("Reaction exception", exception);
         }
       }
@@ -487,7 +488,7 @@ Let's read it:
 2. In `while` loop, we take the reactions queue and swap it with new empty array. This way, newly scheduled reactions go to the new queue, leaving the current reaction batch running without changes.
 3. For reactions from the batch, we run `_maybeRun()` method with try/catch.
 4. If after running all reactions there are newly scheduled reactions, we repeat the loop of queue swap.
-5. If there were too many iterations of queue swapping, we then consider that something is wrong and throw an exception.
+5. If there were too many iterations of queue swapping, we then consider that something is wrong and throw an exception. Before throwing, we reset the reactions in the current batch with `_reset()`.
 
 Example of an infinite reaction that will throw this way:
 
@@ -496,8 +497,35 @@ const r = new Reaction(() => {
   a.set(a.get() + 1);
 });
 
-r.run();  // throws
+r.run(); // throws
 ```
+
+The reset is needed to clean computed values in reaction subscriptions. If after the last run computed values are still in DIRTY state, they won't propagate further changes, and the system will never recover.
+
+`_reset` is simple - just iterate over subscriptions and update their revisions (this will reset DIRTY state for computed values):
+
+````ts
+export const updateSubscriptions = (subscriptions: Map<ISubscription, IRevision>): void => {
+  for (const [subscription] of subscriptions) {
+    try {
+      subscription._updateRevision();
+    } catch {}
+  }
+};
+
+class Reaction {
+  _reset(): void {
+    if (this._state !== State.DIRTY) {
+      return;
+    }
+
+    this._state = State.CLEAN;
+
+    updateSubscriptions(this._subscriptions);
+  }
+}
+```
+
 
 ## Reaction Cleanup
 
@@ -506,13 +534,13 @@ Like `useEffect` in React, reaction body can return a cleanup function:
 ```ts
 const reaction = new Reaction(() => {
   const controller = new AbortController();
-  
+
   fetch(url.get(), { signal: controller.signal })
     .then(...)
-    
+
   return () => controller.abort();
 });
-```
+````
 
 We capture it in the `_destructor` field of reaction and run it before each body run:
 
@@ -605,7 +633,7 @@ class Observable {
   set(newValue: T): void {
     // ...
     notify(this._subscribers);
-    endTx();  // this is no-op when inside transaction
+    endTx(); // this is no-op when inside transaction
   }
 }
 ```
@@ -613,10 +641,7 @@ class Observable {
 `txInContext` (used in Reaction's `.run()` method) is a simple combination of `runInContext` and `tx`:
 
 ```ts
-export const txInContext = <T>(
-  fn: () => T,
-  subscriber: ISubscriber | null = null
-): T => {
+export const txInContext = <T>(fn: () => T, subscriber: ISubscriber | null = null): T => {
   const oldSubscriber = setSubscriberContext(subscriber);
   txDepth += 1;
 
@@ -631,61 +656,6 @@ export const txInContext = <T>(
 ```
 
 Reaction body runs in a transaction because effects may update observable values. If they do, nested updates are batched and flushed after the body finishes.
-
-## Weak Subscribers
-
-So, why do we store `WeakRef` to the subscriber, not the object itself?
-
-One big problem all reactive libraries are trying to solve is **garbage collection**. If we store strong references to computed or reactions, they will never go away:
-
-```ts
-const a = new Observable(1);
-
-{
-  const b = new Computed(() => a.get() * 2);
-
-  b.get();  // a will have b as subscriber
-}
-
-// b is not accessible anymore but still referenced from a
-// so it will stay forever
-```
-
-It's 2026, so modern solution to it is using **weak references**. They don't prevent subscribers from being garbage-collected. Each subscriber stores a WeakRef to itself that is used to reference it:
-
-```ts
-class Computed<T> implements ISubscriber {
-  readonly _weakRef = new WeakRef(this);
-  readonly _subscriptions = new Map<ISubscription, IRevision>();
-}
-
-class Observable {
-  readonly _subscribers = new Set<WeakRef<ISubscriber>>();
-}
-```
-
-But still there is a problem - if computed or reaction was garbage-collected, the WeakRef still exists in each `_subscribers` set of its subscriptions. 
-
-To solve it, we will use **FinalizationRegistry**. It allows us to run a function when object is garbage-collected. We pass the WeakRef and subscriptions map as held value, and then execute a simple loop over each subscription inside the finalization function:
-
-```ts
-type HeldValue = [WeakRef<ISubscriber>, Map<ISubscription, IRevision>];
-
-const registry = new FinalizationRegistry<HeldValue>(([ref, subscriptions]) => {
-  for (const [subscription] of subscriptions) {
-    subscription._subscribers.delete(ref);
-  }
-});
-
-export const registerSubscriber = (subscriber: ISubscriber): void => {
-  registry.register(subscriber, [
-    subscriber._weakRef,
-    subscriber._subscriptions,
-  ]);
-};
-```
-
-FinalizationRegistry isn't deterministic, but on average it removes the most dead subscribers from the corresponding `_subscribers`. This is a safety net, not lifecycle management.
 
 ## Robustness
 
@@ -702,10 +672,7 @@ class Computed<T> {
       throw new Error("Recursive computed call");
     }
 
-    const revision = this._updateRevision();
-    trackSubscriber(this, revision);
-
-    return this._value!;
+    //... same logic as before
   }
 }
 ```
@@ -738,7 +705,7 @@ This keeps the system one-directional: computed derives, reaction effects.
 
 ## Actions and untracked reads
 
-If you used MobX or preact-signals, you have seen actions. **Action** is just a function that wraps any given `fn` in an untracked transaction: 
+If you used MobX or preact-signals, you have seen actions. **Action** is just a function that wraps any given `fn` in an untracked transaction:
 
 ```ts
 export const action = <T, Args extends any[]>(
@@ -776,6 +743,70 @@ increment();
 ```ts
 export const untracked = runInContext;
 ```
+
+## Weak Subscribers
+
+So, why do we store `WeakRef` to the subscriber, not the object itself?
+
+One big problem all reactive libraries are trying to solve is **garbage collection**. If we store strong references to computed or reactions, they will never go away:
+
+```ts
+const a = new Observable(1);
+
+{
+  const b = new Computed(() => a.get() * 2);
+
+  b.get(); // a will have b as subscriber
+}
+
+// b is not accessible anymore but still referenced from a
+// so it will stay forever
+```
+
+It's 2026, so modern solution to it is using **weak references**. They don't prevent subscribers from being garbage-collected. Each subscriber stores a WeakRef to itself that is used to reference it:
+
+```ts
+class Computed<T> implements ISubscriber {
+  readonly _weakRef = new WeakRef(this);
+  readonly _subscriptions = new Map<ISubscription, IRevision>();
+}
+
+class Observable {
+  readonly _subscribers = new Set<WeakRef<ISubscriber>>();
+}
+```
+
+But still there is a problem - if computed or reaction was garbage-collected, the WeakRef still exists in each `_subscribers` set of its subscriptions.
+
+To solve it, we will use **FinalizationRegistry**. It allows us to run a function when object is garbage-collected. We pass the WeakRef and subscriptions map as held value, and then execute a simple loop over each subscription inside the finalization function:
+
+```ts
+type HeldValue = [WeakRef<ISubscriber>, Map<ISubscription, IRevision>];
+
+const registry = new FinalizationRegistry<HeldValue>(([ref, subscriptions]) => {
+  for (const [subscription] of subscriptions) {
+    subscription._subscribers.delete(ref);
+  }
+});
+
+export const registerSubscriber = (subscriber: ISubscriber): void => {
+  registry.register(subscriber, [subscriber._weakRef, subscriber._subscriptions]);
+};
+
+class Computed {
+  constructor(private readonly _fn: () => T) {
+    registerSubscriber(this);
+  }
+}
+
+class Reaction {
+  constructor(private _fn: ReactionFn) {
+    registerSubscriber(this);
+  }
+}
+```
+
+FinalizationRegistry isn't deterministic, but on average it removes the most dead subscribers from the corresponding `_subscribers`. This is a safety net, not lifecycle management.
 
 ## Homework for the Reader
 
@@ -822,3 +853,10 @@ We need to destroy nested reactions before a new run of the outer reaction.
 
 Hint: add `_children` field to Reaction. In `.run()` method, check if current context is Reaction and record itself to the context's `_children`. In `._unsubscribeAndCleanup()` loop over child reactions and destroy them before own destruction.
 
+## Author
+
+Eugene Daragan aka **zheksoon**
+
+## License
+
+MIT

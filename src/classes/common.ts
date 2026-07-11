@@ -18,9 +18,7 @@ export const updateSubscriptions = (subscriptions: Map<ISubscription, IRevision>
   for (const [subscription] of subscriptions) {
     try {
       subscription._updateRevision();
-    } catch {
-      // THROWN subscriptions remain able to propagate future notifications.
-    }
+    } catch {}
   }
 };
 

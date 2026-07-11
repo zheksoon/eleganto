@@ -20,7 +20,7 @@ export const runReactions = (): void => {
 
       if (++i > MAX_REACTION_ITERATIONS) {
         for (const reaction of reactions) {
-          reaction._resetAfterInfiniteLoop();
+          reaction._reset();
         }
 
         throw new Error("Infinite reactions loop");
