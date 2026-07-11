@@ -2,12 +2,26 @@ import { IRevision, ISubscriber, ISubscription } from "../types";
 
 export const revisionsChanged = (subscriptions: Map<ISubscription, IRevision>): boolean => {
   for (const [subscription, revision] of subscriptions) {
-    if (subscription._updateRevision() !== revision) {
+    try {
+      if (subscription._updateRevision() !== revision) {
+        return true;
+      }
+    } catch {
       return true;
     }
   }
 
   return false;
+};
+
+export const updateSubscriptions = (subscriptions: Map<ISubscription, IRevision>): void => {
+  for (const [subscription] of subscriptions) {
+    try {
+      subscription._updateRevision();
+    } catch {
+      // THROWN subscriptions remain able to propagate future notifications.
+    }
+  }
 };
 
 export const unsubscribeAndCleanup = (subscriber: ISubscriber): void => {

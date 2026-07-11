@@ -9,7 +9,7 @@ import type {
   ISubscription,
   ReactionFn,
 } from "../types";
-import { revisionsChanged, unsubscribeAndCleanup } from "./common";
+import { revisionsChanged, unsubscribeAndCleanup, updateSubscriptions } from "./common";
 import { registerSubscriber } from "../finalizationRegistry";
 import { runInContext } from "../subscriberContext";
 
@@ -33,12 +33,26 @@ export class Reaction implements IReaction, ISubscriber {
     }
   }
 
-  _shouldRun() {
-    try {
-      return this._state === State.DIRTY && revisionsChanged(this._subscriptions);
-    } finally {
-      this._state = State.CLEAN;
+  _maybeRun() {
+    if (this._state !== State.DIRTY) {
+      return false;
     }
+
+    this._state = State.CLEAN;
+
+    if (revisionsChanged(this._subscriptions)) {
+      this.run();
+    }
+  }
+
+  _resetAfterInfiniteLoop(): void {
+    if (this._state !== State.DIRTY) {
+      return;
+    }
+
+    this._state = State.CLEAN;
+
+    updateSubscriptions(this._subscriptions);
   }
 
   _unsubscribeAndCleanup(): void {

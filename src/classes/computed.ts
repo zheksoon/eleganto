@@ -1,11 +1,6 @@
 import { State } from "../constants";
 import { runInContext, trackSubscriber } from "../subscriberContext";
-import type {
-  IComputed,
-  IRevision,
-  ISubscriber,
-  ISubscription,
-} from "../types";
+import type { IComputed, IRevision, ISubscriber, ISubscription } from "../types";
 import { notify, revisionsChanged, unsubscribeAndCleanup } from "./common";
 import { registerSubscriber } from "../finalizationRegistry";
 import { newRevision } from "./revision";
@@ -17,9 +12,7 @@ type ComputedState =
   | State.DIRTY
   | State.THROWN;
 
-export class Computed<T = any>
-  implements IComputed<T>, ISubscriber, ISubscription
-{
+export class Computed<T = any> implements IComputed<T>, ISubscriber, ISubscription {
   readonly _weakRef = new WeakRef(this);
   readonly _subscriptions: Map<ISubscription, IRevision> = new Map();
   readonly _subscribers: Set<WeakRef<ISubscriber>> = new Set();
