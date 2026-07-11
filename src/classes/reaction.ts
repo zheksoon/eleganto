@@ -11,7 +11,7 @@ import type {
 } from "../types";
 import { revisionsChanged, unsubscribeAndCleanup, updateSubscriptions } from "./common";
 import { registerSubscriber } from "../finalizationRegistry";
-import { runInContext } from "../subscriberContext";
+import { runInContext, subscriberContext } from "../subscriberContext";
 
 type ReactionState = State.CLEAN | State.DIRTY | State.DESTROYED;
 
@@ -21,6 +21,8 @@ export class Reaction implements IReaction, ISubscriber {
 
   private _destructor: Destructor = null;
   private _state: ReactionState = State.CLEAN;
+
+  public _children = new Set<Reaction>();
 
   constructor(private _fn: ReactionFn) {
     registerSubscriber(this);
@@ -56,6 +58,11 @@ export class Reaction implements IReaction, ISubscriber {
   }
 
   _unsubscribeAndCleanup(): void {
+    for (const child of this._children) {
+      child.destroy();
+    }
+    this._children.clear();
+
     unsubscribeAndCleanup(this);
     this._destructor && runInContext(this._destructor, null);
     this._destructor = null;
@@ -64,12 +71,18 @@ export class Reaction implements IReaction, ISubscriber {
   destroy(): void {
     if (this._state === State.DESTROYED) return;
     this._state = State.DESTROYED;
+
     this._unsubscribeAndCleanup();
   }
 
   run(): void {
     this._state = State.CLEAN;
     this._unsubscribeAndCleanup();
+
+    if (subscriberContext instanceof Reaction) {
+      subscriberContext._children.add(this);
+    }
+
     this._destructor = txInContext(this._fn, this);
   }
 }
