@@ -207,7 +207,12 @@ class Observable {
 `_notify` method of a Computed subscriber is simple - just sets its state to `State.DIRTY` and propagates to other subscribers:
 
 ```ts
-type ComputedState = State.CLEAN | State.NOT_INITIALIZED | State.COMPUTING | State.DIRTY;
+type ComputedState =
+  | State.CLEAN
+  | State.NOT_INITIALIZED
+  | State.COMPUTING
+  | State.DIRTY
+  | State.THROWN;
 
 class Computed<T> {
   _notify() {
